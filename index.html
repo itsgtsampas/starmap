@@ -114,7 +114,8 @@
       font-size:12px;
       letter-spacing:.28em;
       text-transform:uppercase;
-      color: rgba(233,238,252,.45);
+      color: rgba(233,238,252,.7);
+      font-weight: 700;
       user-select:none;
     }
     .star-info{
@@ -163,11 +164,10 @@
       <div class="corner">our map</div>
       <div class="star-info" id="starInfo">
         <span class="name">Hover a bright star</span>
-        <span class="value">Name, magnitude, altitude, azimuth</span>
       </div>
       <div class="label">
         <p class="title">The night we became "us"</p>
-        <p class="names">You & Her</p>
+        <p class="names">You & Me</p>
         <p class="sub">
           <span id="dateText">January 8, 2026</span>
           <span class="dot"></span>
@@ -591,14 +591,14 @@
 
     const { stars } = starData;
     for (const star of stars) {
-      const pulse = 0.7 + 0.3 * Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
+      const pulse = 0.55 + 0.45 * Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
       const alpha = star.alpha * pulse;
 
       // Soft glow
-      ctx.globalAlpha = alpha * 0.35;
+      ctx.globalAlpha = alpha * 0.9;
       ctx.fillStyle = star.colorStr;
       ctx.beginPath();
-      ctx.arc(star.x, star.y, star.size * 2.2, 0, Math.PI * 2);
+      ctx.arc(star.x, star.y, star.size * 3.2, 0, Math.PI * 2);
       ctx.fill();
 
       // Star core
