@@ -108,12 +108,13 @@
 
     .corner{
       position:absolute;
-      top:18px;
-      left:18px;
+      top:16px;
+      left:50%;
+      transform: translateX(-50%);
       font-size:12px;
-      letter-spacing:.18em;
+      letter-spacing:.28em;
       text-transform:uppercase;
-      color: rgba(233,238,252,.22);
+      color: rgba(233,238,252,.45);
       user-select:none;
     }
     .star-info{
@@ -159,7 +160,7 @@
 
   <div class="poster">
     <div class="frame" aria-hidden="true">
-      <div class="corner">our sky</div>
+      <div class="corner">our map</div>
       <div class="star-info" id="starInfo">
         <span class="name">Hover a bright star</span>
         <span class="value">Name, magnitude, altitude, azimuth</span>
@@ -381,6 +382,8 @@
   // ========= Canvas setup =========
   const canvas = document.getElementById("sky");
   const ctx = canvas.getContext("2d", { alpha: true });
+  const staticCanvas = document.createElement("canvas");
+  const staticCtx = staticCanvas.getContext("2d", { alpha: true });
   const bgCanvas = document.getElementById("bgCanvas");
   const bgCtx = bgCanvas.getContext("2d", { alpha: false });
 
@@ -391,6 +394,8 @@
     H = Math.floor(window.innerHeight * DPR);
     canvas.width = W;
     canvas.height = H;
+    staticCanvas.width = W;
+    staticCanvas.height = H;
     bgCanvas.width = W;
     bgCanvas.height = H;
     drawBackground();
@@ -507,6 +512,8 @@
 
         const colorStr = `rgb(${color.r}, ${color.g}, ${color.b})`;
         const alpha = Math.min(1, 0.35 + (3.2 - mag) * 0.12);
+        const twinklePhase = Math.random() * Math.PI * 2;
+        const twinkleSpeed = 0.6 + Math.random() * 0.9;
         visibleStars.push({
           index: i,
           name,
@@ -515,6 +522,8 @@
           mag,
           colorStr,
           alpha,
+          twinklePhase,
+          twinkleSpeed,
           altitude: pos.altitude,
           azimuth: pos.azimuth,
         });
@@ -544,52 +553,79 @@
     }, 120);
   }, { passive: true });
 
-  // ========= Static render =========
-  function renderSky() {
+  // ========= Static + animated render =========
+  function drawStaticLayer() {
+    staticCtx.clearRect(0, 0, W, H);
+
+    const { cx, cy, R, linePairs } = starData;
+
+    // Constellation lines (simple solid color, no gradients)
+    if (CONFIG.showConstellationLines) {
+      staticCtx.strokeStyle = 'rgba(100, 140, 200, 0.1)';
+      staticCtx.lineWidth = 1 * DPR;
+      for (const [starA, starB] of linePairs) {
+        staticCtx.beginPath();
+        staticCtx.moveTo(starA.x, starA.y);
+        staticCtx.lineTo(starB.x, starB.y);
+        staticCtx.stroke();
+      }
+    }
+
+    // Circular boundary
+    staticCtx.strokeStyle = "rgba(233, 238, 252, 0.15)";
+    staticCtx.lineWidth = 1 * DPR;
+    staticCtx.beginPath();
+    staticCtx.arc(cx, cy, R, 0, Math.PI * 2);
+    staticCtx.stroke();
+
+    // Inner circle
+    staticCtx.strokeStyle = "rgba(233, 238, 252, 0.06)";
+    staticCtx.beginPath();
+    staticCtx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
+    staticCtx.stroke();
+  }
+
+  function drawFrame(now) {
     ctx.clearRect(0, 0, W, H);
+    ctx.drawImage(staticCanvas, 0, 0);
 
-    const { stars, cx, cy, R, linePairs } = starData;
-
-    // Draw stars as clean points (no glow, no spikes)
+    const { stars } = starData;
     for (const star of stars) {
-      ctx.globalAlpha = star.alpha;
+      const pulse = 0.7 + 0.3 * Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
+      const alpha = star.alpha * pulse;
+
+      // Soft glow
+      ctx.globalAlpha = alpha * 0.35;
       ctx.fillStyle = star.colorStr;
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.size * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Star core
+      ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
     }
 
     ctx.globalAlpha = 1;
-
-    // Constellation lines (simple solid color, no gradients)
-    if (CONFIG.showConstellationLines) {
-      ctx.strokeStyle = 'rgba(100, 140, 200, 0.1)';
-      ctx.lineWidth = 1 * DPR;
-      for (const [starA, starB] of linePairs) {
-        ctx.beginPath();
-        ctx.moveTo(starA.x, starA.y);
-        ctx.lineTo(starB.x, starB.y);
-        ctx.stroke();
-      }
-    }
-
-    // Circular boundary
-    ctx.strokeStyle = "rgba(233, 238, 252, 0.15)";
-    ctx.lineWidth = 1 * DPR;
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // Inner circle
-    ctx.strokeStyle = "rgba(233, 238, 252, 0.06)";
-    ctx.beginPath();
-    ctx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
-    ctx.stroke();
   }
 
   function rebuildSky() {
     starData = getStarScreenPositions();
-    renderSky();
+    drawStaticLayer();
+    drawFrame(0);
+  }
+
+  let running = true;
+  let lastFrame = 0;
+  function animate(now) {
+    if (!running) return;
+    if (now - lastFrame >= 33) {
+      lastFrame = now;
+      drawFrame(now);
+    }
+    requestAnimationFrame(animate);
   }
 
   const infoEl = document.getElementById("starInfo");
@@ -641,6 +677,12 @@
   }, { passive: true });
 
   rebuildSky();
+  requestAnimationFrame(animate);
+
+  document.addEventListener("visibilitychange", () => {
+    running = !document.hidden;
+    if (running) requestAnimationFrame(animate);
+  });
 })();
 </script>
 </body>
