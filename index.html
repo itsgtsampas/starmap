@@ -138,7 +138,7 @@
           <span class="dot"></span>
           <span id="placeText">Athens</span>
           <span class="dot"></span>
-          <span id="coordsText">37.9838°N 23.7275°E</span>
+          <span id="coordsText">38.0407°N 23.6872°E</span>
         </p>
       </div>
     </div>
@@ -154,9 +154,9 @@
     day: 8,
     hour: 21,      // 9 PM local time - romantic evening
     placeName: "Athens",
-    lat: 37.9838,
-    lon: 23.7275,
-    timezone: 2,   // UTC+2 for Athens
+    lat: 38.04066366615578,
+    lon: 23.687203255515126,
+    timezone: 2,   // UTC+2 for Athens (EET in winter)
 
     // Visual style
     twinkleIntensity: 0.6,
@@ -378,11 +378,11 @@
 
     // Nebula clouds using multiple layered gradients
     const nebulaColors = [
-      { x: 0.3, y: 0.25, r: 0.35, color1: 'rgba(30, 50, 100, 0.12)', color2: 'rgba(20, 30, 60, 0)' },
-      { x: 0.7, y: 0.35, r: 0.3, color1: 'rgba(60, 30, 80, 0.08)', color2: 'rgba(40, 20, 60, 0)' },
-      { x: 0.5, y: 0.5, r: 0.4, color1: 'rgba(20, 40, 80, 0.10)', color2: 'rgba(10, 20, 40, 0)' },
-      { x: 0.2, y: 0.6, r: 0.25, color1: 'rgba(40, 60, 100, 0.06)', color2: 'rgba(20, 30, 50, 0)' },
-      { x: 0.8, y: 0.7, r: 0.28, color1: 'rgba(50, 30, 70, 0.07)', color2: 'rgba(30, 20, 50, 0)' },
+      { x: 0.3, y: 0.25, r: 0.35, rgb: [30, 50, 100], alpha: 0.12 },
+      { x: 0.7, y: 0.35, r: 0.3, rgb: [60, 30, 80], alpha: 0.08 },
+      { x: 0.5, y: 0.5, r: 0.4, rgb: [20, 40, 80], alpha: 0.10 },
+      { x: 0.2, y: 0.6, r: 0.25, rgb: [40, 60, 100], alpha: 0.06 },
+      { x: 0.8, y: 0.7, r: 0.28, rgb: [50, 30, 70], alpha: 0.07 },
     ];
 
     const intensity = CONFIG.nebulaIntensity;
@@ -391,9 +391,11 @@
         W * neb.x, H * neb.y, 0,
         W * neb.x, H * neb.y, Math.max(W, H) * neb.r
       );
-      grad.addColorStop(0, neb.color1.replace('0.', (parseFloat(neb.color1.match(/[\d.]+\)$/)[0]) * intensity).toFixed(2) + ')'));
-      grad.addColorStop(0.5, neb.color1.replace('0.', (parseFloat(neb.color1.match(/[\d.]+\)$/)[0]) * intensity * 0.5).toFixed(2) + ')'));
-      grad.addColorStop(1, neb.color2);
+      const [r, g, b] = neb.rgb;
+      const a = neb.alpha * intensity;
+      grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${a})`);
+      grad.addColorStop(0.5, `rgba(${r}, ${g}, ${b}, ${a * 0.5})`);
+      grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
       bgCtx.fillStyle = grad;
       bgCtx.fillRect(0, 0, W, H);
     }
