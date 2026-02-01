@@ -131,22 +131,36 @@
       background-size: 3px 3px, 4px 4px;
       background-position: 0 0, 1px 1px;
     }
-    .placard{
+    .legend{
       position:absolute;
-      top:18px;
-      left:18px;
+      right:18px;
+      bottom:120px;
       display:flex;
       gap:10px;
       align-items:center;
-      font-size:11px;
+      font-size:10px;
       letter-spacing:.18em;
       text-transform:uppercase;
       color: rgba(233,238,252,.55);
     }
-    .placard .bar{
-      width:20px;
-      height:1px;
-      background: rgba(233,238,252,.2);
+    .legend .dot{
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      background: rgba(233,238,252,.7);
+      box-shadow: 0 0 6px rgba(233,238,252,.6);
+    }
+    .legend .mid{
+      width:4px;
+      height:4px;
+      box-shadow: 0 0 4px rgba(233,238,252,.4);
+      opacity:.75;
+    }
+    .legend .dim{
+      width:3px;
+      height:3px;
+      box-shadow: 0 0 3px rgba(233,238,252,.25);
+      opacity:.55;
     }
     .star-info{
       position:absolute;
@@ -192,13 +206,16 @@
   <div class="poster">
     <div class="frame" aria-hidden="true">
       <div class="corner">our map</div>
-      <div class="placard">
-        <span id="timeText">21:00</span>
-        <span class="bar"></span>
-        <span id="dateBlock">January 8, 2026</span>
-      </div>
       <div class="star-info" id="starInfo">
         <span class="name">Hover a bright star</span>
+      </div>
+      <div class="legend" aria-hidden="true">
+        <span class="dot"></span>
+        <span>bright</span>
+        <span class="dot mid"></span>
+        <span>medium</span>
+        <span class="dot dim"></span>
+        <span>faint</span>
       </div>
       <div class="label">
         <p class="title">The night we became "us"</p>
@@ -361,8 +378,6 @@
   document.getElementById("placeText").textContent = CONFIG.placeName;
   document.getElementById("coordsText").textContent =
     `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
-  document.getElementById("dateBlock").textContent = `January ${CONFIG.day}, ${CONFIG.year}`;
-  document.getElementById("timeText").textContent = `${String(CONFIG.hour).padStart(2,"0")}:00`;
 
   // ========= Astronomical calculations =========
   function julianDate(year, month, day, hour) {
@@ -462,6 +477,7 @@
     bgCanvas.width = W;
     bgCanvas.height = H;
     drawBackground();
+    applyPosterVignette();
   }
   window.addEventListener("resize", resize, { passive:true });
   resize();
@@ -523,6 +539,26 @@
     vignette.addColorStop(1, 'rgba(0,0,0,0.5)');
     bgCtx.fillStyle = vignette;
     bgCtx.fillRect(0, 0, W, H);
+  }
+
+  function applyPosterVignette() {
+    const pr = posterRect();
+    const x = pr.x * DPR;
+    const y = pr.y * DPR;
+    const w = pr.w * DPR;
+    const h = pr.h * DPR;
+
+    bgCtx.save();
+    bgCtx.globalCompositeOperation = "multiply";
+    const vignette = bgCtx.createRadialGradient(
+      x + w * 0.5, y + h * 0.6, w * 0.2,
+      x + w * 0.5, y + h * 0.6, w * 0.9
+    );
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0,0.35)");
+    bgCtx.fillStyle = vignette;
+    bgCtx.fillRect(x, y, w, h);
+    bgCtx.restore();
   }
 
   // ========= Get poster dimensions =========
@@ -622,6 +658,16 @@
 
     const { cx, cy, R, linePairs } = starData;
 
+    // Map halo behind circle
+    const halo = staticCtx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.1);
+    halo.addColorStop(0, "rgba(120, 160, 220, 0.08)");
+    halo.addColorStop(0.6, "rgba(120, 160, 220, 0.04)");
+    halo.addColorStop(1, "rgba(120, 160, 220, 0)");
+    staticCtx.fillStyle = halo;
+    staticCtx.beginPath();
+    staticCtx.arc(cx, cy, R * 1.08, 0, Math.PI * 2);
+    staticCtx.fill();
+
     // Constellation lines (simple solid color, no gradients)
     if (CONFIG.showConstellationLines) {
       staticCtx.strokeStyle = 'rgba(100, 140, 200, 0.1)';
@@ -646,6 +692,22 @@
     staticCtx.beginPath();
     staticCtx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
     staticCtx.stroke();
+
+    // Subtle coordinate grid
+    staticCtx.strokeStyle = "rgba(233, 238, 252, 0.04)";
+    staticCtx.lineWidth = 1 * DPR;
+    for (let r = 0.2; r <= 0.9; r += 0.2) {
+      staticCtx.beginPath();
+      staticCtx.arc(cx, cy, R * r, 0, Math.PI * 2);
+      staticCtx.stroke();
+    }
+    for (let a = 0; a < 360; a += 30) {
+      const rad = (a - 90) * Math.PI / 180;
+      staticCtx.beginPath();
+      staticCtx.moveTo(cx, cy);
+      staticCtx.lineTo(cx + Math.cos(rad) * R, cy + Math.sin(rad) * R);
+      staticCtx.stroke();
+    }
 
     // Compass ticks
     staticCtx.strokeStyle = "rgba(233, 238, 252, 0.18)";
