@@ -526,100 +526,81 @@
   }
 
   // ========= Animation loop =========
-  let lastTime = performance.now();
-
   function draw(now) {
-    const dt = (now - lastTime) / 1000;
-    lastTime = now;
-
     ctx.clearRect(0, 0, W, H);
 
     const { stars, cx, cy, R } = starData;
 
-    // Draw stars with enhanced twinkling
+    // Draw stars with optimized twinkling
     for (const star of stars) {
-      // Multi-layered twinkle effect
-      const twinkle1 = Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
-      const twinkle2 = Math.sin(now / 1500 * star.twinkleSpeed * 0.7 + star.twinklePhase * 1.3);
-      const twinkle3 = Math.sin(now / 2000 * star.twinkleSpeed * 0.5 + star.twinklePhase * 0.8);
-
-      const twinkleFactor = 0.6 + 0.4 * (twinkle1 * 0.5 + twinkle2 * 0.3 + twinkle3 * 0.2);
+      // Simple twinkle effect (single sine wave for performance)
+      const twinkle = Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
+      const twinkleFactor = 0.7 + 0.3 * twinkle;
       const twinkleIntensity = (1 - CONFIG.twinkleIntensity) + CONFIG.twinkleIntensity * twinkleFactor;
 
-      // Subtle pulsing for brighter stars
-      const pulse = star.mag < 1.5 ? 1 + 0.08 * Math.sin(now / 1000 * star.pulseSpeed + star.pulsePhase) : 1;
-
-      const baseAlpha = Math.min(1, 0.4 + (3 - star.mag) * 0.15);
+      const baseAlpha = Math.min(1, 0.5 + (3 - star.mag) * 0.12);
       const alpha = baseAlpha * twinkleIntensity;
-      const currentSize = star.size * pulse;
-
       const { r, g, b } = star.color;
 
-      // Outer glow for brighter stars
-      if (star.mag < 2) {
-        const glowSize = currentSize * (3 + (2 - star.mag) * 1.5);
-        const glowAlpha = alpha * 0.15 * twinkleIntensity;
-        const glowGrad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, glowSize);
-        glowGrad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${glowAlpha})`);
-        glowGrad.addColorStop(0.4, `rgba(${r}, ${g}, ${b}, ${glowAlpha * 0.4})`);
-        glowGrad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-        ctx.fillStyle = glowGrad;
+      // Simple glow for bright stars (no gradient, just larger faded circle)
+      if (star.mag < 1) {
+        ctx.globalAlpha = alpha * 0.12;
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
         ctx.beginPath();
-        ctx.arc(star.x, star.y, glowSize, 0, Math.PI * 2);
+        ctx.arc(star.x, star.y, star.size * 4, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Star core with gradient
-      const coreGrad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, currentSize * 1.5);
-      coreGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-      coreGrad.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${alpha * 0.9})`);
-      coreGrad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
-      ctx.fillStyle = coreGrad;
+      // Star core - simple filled circle
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
       ctx.beginPath();
-      ctx.arc(star.x, star.y, currentSize * 1.5, 0, Math.PI * 2);
+      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
 
+      // Bright white center for brighter stars
+      if (star.mag < 2) {
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, star.size * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       // Diffraction spikes for very bright stars
-      if (star.mag < 0.5) {
-        ctx.save();
-        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.3})`;
+      if (star.mag < 0.3) {
+        ctx.globalAlpha = alpha * 0.25;
+        ctx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
         ctx.lineWidth = 0.8 * DPR;
-        const spikeLen = currentSize * 4;
+        const spikeLen = star.size * 5;
         ctx.beginPath();
         ctx.moveTo(star.x - spikeLen, star.y);
         ctx.lineTo(star.x + spikeLen, star.y);
         ctx.moveTo(star.x, star.y - spikeLen);
         ctx.lineTo(star.x, star.y + spikeLen);
         ctx.stroke();
-        ctx.restore();
       }
     }
 
-    // Constellation lines
+    ctx.globalAlpha = 1;
+
+    // Constellation lines (simple solid color, no gradients)
     if (CONFIG.showConstellationLines) {
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = 'rgba(100, 140, 200, 0.1)';
+      ctx.lineWidth = 1 * DPR;
       for (const [i, j] of CONSTELLATION_LINES) {
         const starA = stars.find(s => s.index === i);
         const starB = stars.find(s => s.index === j);
         if (starA && starB) {
-          const lineGrad = ctx.createLinearGradient(starA.x, starA.y, starB.x, starB.y);
-          lineGrad.addColorStop(0, 'rgba(100, 140, 200, 0.08)');
-          lineGrad.addColorStop(0.5, 'rgba(100, 140, 200, 0.12)');
-          lineGrad.addColorStop(1, 'rgba(100, 140, 200, 0.08)');
-          ctx.strokeStyle = lineGrad;
-          ctx.lineWidth = 1 * DPR;
           ctx.beginPath();
           ctx.moveTo(starA.x, starA.y);
           ctx.lineTo(starB.x, starB.y);
           ctx.stroke();
         }
       }
-      ctx.restore();
     }
 
     // Circular boundary
-    ctx.save();
     ctx.strokeStyle = "rgba(233, 238, 252, 0.15)";
     ctx.lineWidth = 1 * DPR;
     ctx.beginPath();
@@ -631,7 +612,6 @@
     ctx.beginPath();
     ctx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.restore();
 
     // Shooting star
     maybeSpawnShootingStar();
@@ -643,33 +623,27 @@
       shooting.x += shooting.vx;
       shooting.y += shooting.vy;
 
-      ctx.save();
       const alpha = Math.max(0, 1 - progress);
 
-      // Glowing head
-      const headGrad = ctx.createRadialGradient(x1, y1, 0, x1, y1, 6 * DPR);
-      headGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-      headGrad.addColorStop(0.5, `rgba(200, 230, 255, ${alpha * 0.5})`);
-      headGrad.addColorStop(1, `rgba(150, 200, 255, 0)`);
-      ctx.fillStyle = headGrad;
+      // Glowing head - simple circle
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(x1, y1, 6 * DPR, 0, Math.PI * 2);
+      ctx.arc(x1, y1, 3 * DPR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Trail
-      const trailLen = 5 + progress * 3;
-      const trailGrad = ctx.createLinearGradient(x1, y1, x1 - shooting.vx * trailLen, y1 - shooting.vy * trailLen);
-      trailGrad.addColorStop(0, `rgba(200, 230, 255, ${alpha * 0.8})`);
-      trailGrad.addColorStop(1, `rgba(150, 200, 255, 0)`);
-      ctx.strokeStyle = trailGrad;
+      // Trail - simple line
+      ctx.globalAlpha = alpha * 0.7;
+      ctx.strokeStyle = 'rgba(200, 230, 255, 0.8)';
       ctx.lineWidth = shooting.width * DPR * (1 - progress * 0.5);
       ctx.lineCap = 'round';
+      const trailLen = 5 + progress * 3;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x1 - shooting.vx * trailLen, y1 - shooting.vy * trailLen);
       ctx.stroke();
 
-      ctx.restore();
+      ctx.globalAlpha = 1;
 
       if (shooting.life >= shooting.maxLife) shooting = null;
     }
