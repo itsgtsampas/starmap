@@ -581,18 +581,11 @@
   const bgCtx = bgCanvas.getContext("2d", { alpha: false });
   const wrap = document.getElementById("wrap");
 
-  // Subtle parallax for background
+  // Subtle parallax for background (driven by main loop)
   let parallaxX = 0;
   let parallaxY = 0;
   let targetX = 0;
   let targetY = 0;
-  function updateParallax() {
-    parallaxX += (targetX - parallaxX) * 0.08;
-    parallaxY += (targetY - parallaxY) * 0.08;
-    bgCanvas.style.transform = `translate(${parallaxX}px, ${parallaxY}px)`;
-    requestAnimationFrame(updateParallax);
-  }
-  updateParallax();
   wrap.addEventListener("pointermove", (e) => {
     const rect = wrap.getBoundingClientRect();
     const mx = (e.clientX - rect.left) / rect.width - 0.5;
@@ -607,7 +600,12 @@
 
   let W = 0, H = 0, DPR = 1;
   function resize(){
-    DPR = Math.max(1, Math.min(1.5, window.devicePixelRatio || 1));
+    const dpr = window.devicePixelRatio || 1;
+    const lowPower = (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+      (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+      (window.innerWidth * window.innerHeight > 1600000);
+    const maxDpr = lowPower ? 1.2 : 1.5;
+    DPR = Math.max(1, Math.min(maxDpr, dpr));
     W = Math.floor(window.innerWidth * DPR);
     H = Math.floor(window.innerHeight * DPR);
     canvas.width = W;
@@ -916,6 +914,31 @@
     }
   }
 
+  const glowCache = new Map();
+  function getGlowSprite(size, colorStr, isBright) {
+    const key = `${Math.round(size * 2) / 2}|${colorStr}|${isBright ? 1 : 0}`;
+    const cached = glowCache.get(key);
+    if (cached) return cached;
+
+    const radius = size * (isBright ? 3.4 : 2.2);
+    const dim = Math.ceil(radius * 2 + 2);
+    const c = document.createElement("canvas");
+    c.width = dim;
+    c.height = dim;
+    const g = c.getContext("2d");
+    const grad = g.createRadialGradient(dim / 2, dim / 2, 0, dim / 2, dim / 2, radius);
+    grad.addColorStop(0, colorStr.replace("rgb", "rgba").replace(")", ",0.9)"));
+    grad.addColorStop(0.6, colorStr.replace("rgb", "rgba").replace(")", ",0.25)"));
+    grad.addColorStop(1, colorStr.replace("rgb", "rgba").replace(")", ",0)"));
+    g.fillStyle = grad;
+    g.beginPath();
+    g.arc(dim / 2, dim / 2, radius, 0, Math.PI * 2);
+    g.fill();
+
+    glowCache.set(key, c);
+    return c;
+  }
+
   function drawFrame(now) {
     ctx.clearRect(0, 0, W, H);
     const driftX = Math.sin(now / 6000) * 0.6 * DPR;
@@ -929,15 +952,13 @@
       const size = star.size;
       const isBright = star.mag < 1.2;
 
-      // Realistic glow (stronger for bright stars)
-      ctx.globalAlpha = alpha * (isBright ? 1.1 : 0.7);
-      ctx.fillStyle = star.colorStr;
-      ctx.beginPath();
-      ctx.arc(star.x + driftX, star.y + driftY, size * (isBright ? 4.2 : 2.8), 0, Math.PI * 2);
-      ctx.fill();
+      // Realistic glow (sprite cached)
+      const glow = getGlowSprite(size, star.colorStr, isBright);
+      ctx.globalAlpha = alpha * (isBright ? 1.0 : 0.65);
+      ctx.drawImage(glow, star.x + driftX - glow.width / 2, star.y + driftY - glow.height / 2);
 
       // Star core
-      ctx.globalAlpha = alpha * (isBright ? 1.1 : 0.95);
+      ctx.globalAlpha = alpha * (isBright ? 1.0 : 0.95);
       ctx.beginPath();
       ctx.arc(star.x + driftX, star.y + driftY, size, 0, Math.PI * 2);
       ctx.fill();
@@ -1020,11 +1041,25 @@
 
   let running = true;
   let lastFrame = 0;
+  let targetFrameMs = 1000 / 24;
   function animate(now) {
     if (!running) return;
-    if (now - lastFrame >= 33) {
+    const delta = now - lastFrame;
+    if (delta >= targetFrameMs) {
       lastFrame = now;
+      // Update parallax in the same loop
+      parallaxX += (targetX - parallaxX) * 0.08;
+      parallaxY += (targetY - parallaxY) * 0.08;
+      bgCanvas.style.transform = `translate(${parallaxX}px, ${parallaxY}px)`;
+
       drawFrame(now);
+
+      // Adaptive FPS
+      if (delta > 50) {
+        targetFrameMs = 1000 / 20;
+      } else if (delta < 35) {
+        targetFrameMs = 1000 / 24;
+      }
     }
     requestAnimationFrame(animate);
   }
