@@ -95,6 +95,7 @@
       color: rgba(233,238,252,.35);
     }
     .moon{
+      --phase-shift: 0px;
       display:inline-flex;
       align-items:center;
       justify-content:center;
@@ -104,15 +105,38 @@
       border:1px solid rgba(233,238,252,.45);
       position:relative;
       margin-left:8px;
-      opacity:.7;
+      background: rgba(10,12,20,.9);
+      box-shadow: 0 0 6px rgba(180,200,255,.25) inset;
+      opacity:.85;
+      overflow:hidden;
     }
     .moon::after{
       content:"";
       position:absolute;
-      inset:2px 4px 2px 2px;
-      background: rgba(233,238,252,.6);
-      border-radius:50%;
-      filter: blur(0.2px);
+      inset:-2px;
+      background:
+        radial-gradient(
+          circle at calc(50% + var(--phase-shift)) 50%,
+          rgba(230,235,255,.95) 0 55%,
+          rgba(230,235,255,0) 58%
+        );
+      mix-blend-mode: screen;
+    }
+    .desc-card{
+      position:absolute;
+      left:18px;
+      top:44px;
+      max-width: 220px;
+      padding:10px 12px;
+      border:1px solid rgba(233,238,252,.12);
+      border-radius:10px;
+      background: rgba(5,8,14,.55);
+      color: rgba(233,238,252,.7);
+      font-size:11px;
+      line-height:1.5;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      backdrop-filter: blur(6px);
     }
     .ruler{
       position:absolute;
@@ -305,6 +329,9 @@
   <div class="poster">
     <div class="frame" aria-hidden="true">
       <div class="corner">our map</div>
+      <div class="desc-card">
+        A star map of the night Maria &amp; Giorgos met in Athens.
+      </div>
       <div class="star-info" id="starInfo">
         <span class="name">Hover a bright star</span>
       </div>
@@ -480,6 +507,17 @@
   document.getElementById("placeText").textContent = CONFIG.placeName;
   document.getElementById("coordsText").textContent =
     `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
+  const moonEl = document.querySelector(".moon");
+  if (moonEl) {
+    // Simple lunar phase: 0=new, 0.5=full
+    const synodic = 29.530588853;
+    const base = Date.UTC(2000, 0, 6, 18, 14, 0); // known new moon
+    const nowUtc = Date.UTC(CONFIG.year, CONFIG.month - 1, CONFIG.day, 0, 0, 0);
+    const days = (nowUtc - base) / 86400000;
+    const phase = ((days % synodic) + synodic) / synodic % 1;
+    const shift = (phase - 0.5) * 14;
+    moonEl.style.setProperty("--phase-shift", `${shift.toFixed(2)}px`);
+  }
 
   // ========= Astronomical calculations =========
   function julianDate(year, month, day, hour) {
@@ -888,22 +926,90 @@
     for (const star of stars) {
       const pulse = 0.55 + 0.45 * Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
       const alpha = star.alpha * pulse;
+      const size = star.size;
+      const isBright = star.mag < 1.2;
 
-      // Soft glow
-      ctx.globalAlpha = alpha * 0.9;
+      // Realistic glow (stronger for bright stars)
+      ctx.globalAlpha = alpha * (isBright ? 1.1 : 0.7);
       ctx.fillStyle = star.colorStr;
       ctx.beginPath();
-      ctx.arc(star.x + driftX, star.y + driftY, star.size * 3.2, 0, Math.PI * 2);
+      ctx.arc(star.x + driftX, star.y + driftY, size * (isBright ? 4.2 : 2.8), 0, Math.PI * 2);
       ctx.fill();
 
       // Star core
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = alpha * (isBright ? 1.1 : 0.95);
       ctx.beginPath();
-      ctx.arc(star.x + driftX, star.y + driftY, star.size, 0, Math.PI * 2);
+      ctx.arc(star.x + driftX, star.y + driftY, size, 0, Math.PI * 2);
       ctx.fill();
+
+      // Bright white center
+      if (isBright) {
+        ctx.globalAlpha = alpha * 0.9;
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(star.x + driftX, star.y + driftY, size * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     ctx.globalAlpha = 1;
+
+    // Shooting stars
+    maybeSpawnShootingStar(now);
+    if (shooting) {
+      shooting.life++;
+      const progress = shooting.life / shooting.maxLife;
+      const x1 = shooting.x;
+      const y1 = shooting.y;
+      shooting.x += shooting.vx;
+      shooting.y += shooting.vy;
+
+      const alpha = Math.max(0, 1 - progress);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(x1, y1, 2.4 * DPR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.strokeStyle = "rgba(200,230,255,0.8)";
+      ctx.lineWidth = 1.4 * DPR;
+      ctx.lineCap = "round";
+      const trailLen = 10 + progress * 10;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - shooting.vx * trailLen, y1 - shooting.vy * trailLen);
+      ctx.stroke();
+
+      ctx.globalAlpha = 1;
+
+      if (shooting.life >= shooting.maxLife) shooting = null;
+    }
+  }
+
+  // ========= Shooting stars =========
+  let shooting = null;
+  let nextShootAt = 0;
+  function maybeSpawnShootingStar(now) {
+    if (shooting) return;
+    if (now < nextShootAt) return;
+    nextShootAt = now + 7000 + Math.random() * 9000;
+
+    const { cx, cy, R } = starData;
+    const ang = Math.random() * Math.PI * 2;
+    const startR = R * (0.6 + Math.random() * 0.35);
+    const x0 = cx + startR * Math.cos(ang);
+    const y0 = cy + startR * Math.sin(ang);
+
+    const dir = ang + Math.PI * (0.35 + Math.random() * 0.3) * (Math.random() < 0.5 ? 1 : -1);
+    shooting = {
+      x: x0,
+      y: y0,
+      vx: Math.cos(dir) * (8 + Math.random() * 6) * DPR,
+      vy: Math.sin(dir) * (8 + Math.random() * 6) * DPR,
+      life: 0,
+      maxLife: 18 + Math.floor(Math.random() * 16),
+    };
   }
 
   function rebuildSky() {
