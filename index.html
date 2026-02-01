@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Our Sky</title>
+  <style>
+    :root{
+      --bg1:#05060a;
+      --bg2:#070a12;
+      --ink:#e9eefc;
+      --muted:rgba(233,238,252,.72);
+      --thin:rgba(233,238,252,.35);
+      --accent:rgba(155,200,255,.9);
+    }
+    html,body{
+      height:100%;
+      margin:0;
+      background: radial-gradient(1200px 1200px at 50% 35%, #0b1630 0%, var(--bg1) 45%, #02030a 100%);
+      overflow:hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color: var(--ink);
+    }
+    #wrap{
+      position:relative;
+      width:100%;
+      height:100%;
+    }
+    canvas{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      display:block;
+    }
+
+    /* Poster overlay */
+    .poster{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      display:grid;
+      place-items:center;
+      padding: clamp(18px, 3vw, 40px);
+    }
+    .frame{
+      width:min(820px, 92vw);
+      aspect-ratio: 3 / 4;
+      border: 1px solid rgba(233,238,252,.22);
+      border-radius: 18px;
+      box-shadow: 0 24px 80px rgba(0,0,0,.55);
+      position:relative;
+      background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.00));
+      overflow:hidden;
+    }
+    .frame::before{
+      content:"";
+      position:absolute;
+      inset:14px;
+      border: 1px solid rgba(233,238,252,.10);
+      border-radius: 14px;
+      pointer-events:none;
+    }
+    .label{
+      position:absolute;
+      left:0; right:0;
+      bottom:0;
+      padding: 22px 24px 24px;
+      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.30) 55%, rgba(0,0,0,.55) 100%);
+    }
+    .title{
+      letter-spacing:.28em;
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin:0 0 8px;
+    }
+    .names{
+      margin:0;
+      font-size: clamp(20px, 2.8vw, 30px);
+      letter-spacing:.06em;
+      font-weight:650;
+    }
+    .sub{
+      margin:10px 0 0;
+      font-size: 13px;
+      letter-spacing:.18em;
+      text-transform: uppercase;
+      color: var(--thin);
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .dot{
+      width:3px;height:3px;border-radius:50%;
+      background: rgba(233,238,252,.35);
+      display:inline-block;
+      transform: translateY(-1px);
+    }
+
+    /* Optional: tiny hint in corner */
+    .corner{
+      position:absolute;
+      top:18px;
+      left:18px;
+      font-size:12px;
+      letter-spacing:.18em;
+      text-transform:uppercase;
+      color: rgba(233,238,252,.22);
+      user-select:none;
+    }
+
+    @media (prefers-reduced-motion: reduce){
+      .corner{ display:none; }
+    }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="sky"></canvas>
+
+  <div class="poster">
+    <div class="frame" aria-hidden="true">
+      <div class="corner">our sky</div>
+      <div class="label">
+        <p class="title">The night we became “us”</p>
+        <p class="names">You & Her</p>
+        <p class="sub">
+          <span id="dateText">January 8, 2025</span>
+          <span class="dot"></span>
+          <span id="placeText">Your City</span>
+          <span class="dot"></span>
+          <span id="coordsText">00.000°N 00.000°E</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ========= Customize these =========
+  // If you know the exact year, set it. Otherwise pick the correct one.
+  const CONFIG = {
+    year: 2025,
+    month: 1,    // January
+    day: 8,
+    placeName: "Athens",
+    lat: 37.9838,
+    lon: 23.7275,
+
+    // Visual style knobs
+    density: 1200,         // star count baseline
+    rotationSpeed: 0.0025, // radians per second
+    twinkle: 0.55,         // 0..1
+    lines: 55,             // constellation-ish lines
+  };
+
+  // Update overlay text
+  const dateText = new Date(Date.UTC(CONFIG.year, CONFIG.month-1, CONFIG.day));
+  const pretty = dateText.toLocaleDateString(undefined, { year:"numeric", month:"long", day:"numeric" });
+  document.getElementById("dateText").textContent = pretty;
+  document.getElementById("placeText").textContent = CONFIG.placeName;
+  document.getElementById("coordsText").textContent =
+    `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
+
+  // ========= Canvas setup =========
+  const canvas = document.getElementById("sky");
+  const ctx = canvas.getContext("2d", { alpha: true });
+
+  let W = 0, H = 0, DPR = 1;
+  function resize(){
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    W = Math.floor(window.innerWidth * DPR);
+    H = Math.floor(window.innerHeight * DPR);
+    canvas.width = W;
+    canvas.height = H;
+  }
+  window.addEventListener("resize", resize, { passive:true });
+  resize();
+
+  // ========= Seeded RNG (deterministic sky per date/location) =========
+  // Good enough for romance. Not good enough for astrophysics. You’ve been warned.
+  const seed =
+    (CONFIG.year * 10000 + CONFIG.month * 100 + CONFIG.day) ^
+    (Math.floor((CONFIG.lat + 90) * 1000) << 1) ^
+    (Math.floor((CONFIG.lon + 180) * 1000) << 2);
+
+  function mulberry32(a){
+    return function(){
+      let t = a += 0x6D2B79F5;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const rand = mulberry32(seed >>> 0);
+
+  // ========= Generate stars in a circular "map" =========
+  // We'll draw a circular star field centered on the poster frame.
+  function posterRect(){
+    // Approx match the CSS frame; still fine even if it's not pixel perfect.
+    const frame = document.querySelector(".frame");
+    const r = frame.getBoundingClientRect();
+    return { x:r.left, y:r.top, w:r.width, h:r.height };
+  }
+
+  let stars = [];
+  function buildStars(){
+    stars = [];
+    const pr = posterRect();
+
+    // map center roughly in viewport coords then scale to DPR canvas coords
+    const cx = (pr.x + pr.w/2) * DPR;
+    const cy = (pr.y + pr.h/2) * DPR;
+
+    // radius based on frame size
+    const R = Math.min(pr.w, pr.h) * 0.39 * DPR;
+
+    // increase count with area a bit
+    const count = Math.floor(CONFIG.density * (R / (260*DPR)));
+
+    for(let i=0;i<count;i++){
+      // polar distribution (more stars near rim = poster-ish)
+      const u = rand();
+      const v = rand();
+      const r = R * Math.pow(u, 0.65);
+      const a = v * Math.PI * 2;
+
+      // base brightness and size
+      const mag = Math.pow(rand(), 2.6); // many dim, few bright
+      const size = 0.6 + (1 - mag) * 1.9; // brighter -> larger
+      const hueShift = rand(); // subtle blue-white variance
+
+      stars.push({
+        r, a,
+        mag,
+        size,
+        tw: rand() * Math.PI * 2,
+        twSpd: 0.6 + rand() * 1.6,
+        hueShift,
+        cx, cy, R
+      });
+    }
+  }
+
+  // ========= Constellation-ish lines =========
+  let links = [];
+  function buildLinks(){
+    links = [];
+    // pick some brighter stars and connect to nearest neighbors
+    const bright = stars
+      .map((s, idx) => ({ s, idx }))
+      .sort((A,B) => A.s.mag - B.s.mag) // lower mag => brighter in our fake system
+      .slice(0, Math.min(220, Math.floor(stars.length * 0.18)));
+
+    // quick nearest neighbor by brute force (still fine at this size)
+    const maxLinks = CONFIG.lines;
+    for(let i=0;i<maxLinks;i++){
+      const a = bright[Math.floor(rand() * bright.length)];
+      let best = null, bestD = Infinity;
+
+      for(let j=0;j<24;j++){
+        const b = bright[Math.floor(rand() * bright.length)];
+        if(a.idx === b.idx) continue;
+
+        const ax = a.s.r * Math.cos(a.s.a);
+        const ay = a.s.r * Math.sin(a.s.a);
+        const bx = b.s.r * Math.cos(b.s.a);
+        const by = b.s.r * Math.sin(b.s.a);
+
+        const d = (ax-bx)*(ax-bx) + (ay-by)*(ay-by);
+        if(d < bestD){
+          bestD = d; best = b;
+        }
+      }
+
+      if(best && bestD < Math.pow((a.s.R * 0.22), 2)){
+        links.push([a.idx, best.idx, 0.08 + rand() * 0.16]);
+      }
+    }
+  }
+
+  buildStars();
+  buildLinks();
+
+  // rebuild on resize (so the circle stays aligned)
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { buildStars(); buildLinks(); }, 120);
+  }, { passive:true });
+
+  // ========= Shooting star =========
+  let shooting = null;
+  function maybeSpawnShootingStar(t){
+    if(shooting) return;
+    // small chance per frame
+    if(rand() < 0.0022){
+      const pr = posterRect();
+      const cx = (pr.x + pr.w/2) * DPR;
+      const cy = (pr.y + pr.h/2) * DPR;
+      const R = Math.min(pr.w, pr.h) * 0.39 * DPR;
+
+      // spawn near rim, shoot across
+      const ang = rand() * Math.PI * 2;
+      const startR = R * (0.85 + rand() * 0.18);
+      const x0 = cx + startR * Math.cos(ang);
+      const y0 = cy + startR * Math.sin(ang);
+
+      const dir = ang + (Math.PI/2) * (rand() < 0.5 ? 1 : -1);
+      shooting = {
+        x: x0, y: y0,
+        vx: Math.cos(dir) * (6 + rand() * 5) * DPR,
+        vy: Math.sin(dir) * (6 + rand() * 5) * DPR,
+        life: 0,
+        maxLife: 26 + Math.floor(rand() * 18),
+        t0: t
+      };
+    }
+  }
+
+  // ========= Draw loop =========
+  let last = performance.now();
+  let rot = 0;
+
+  function draw(now){
+    const dt = Math.min(0.033, (now - last) / 1000);
+    last = now;
+
+    rot += CONFIG.rotationSpeed * dt;
+
+    // fade the whole canvas slightly for smoothness
+    ctx.clearRect(0,0,W,H);
+
+    // soft vignette behind the poster area
+    // (works best if the poster frame is centered-ish)
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    const grd = ctx.createRadialGradient(W*0.5, H*0.38, 0, W*0.5, H*0.38, Math.min(W,H)*0.65);
+    grd.addColorStop(0, "rgba(12,28,60,0.20)");
+    grd.addColorStop(0.6, "rgba(3,5,12,0.00)");
+    grd.addColorStop(1, "rgba(0,0,0,0.35)");
+    ctx.fillStyle = grd;
+    ctx.fillRect(0,0,W,H);
+    ctx.restore();
+
+    // draw stars
+    for(const s of stars){
+      const a = s.a + rot;
+      const x = s.cx + s.r * Math.cos(a);
+      const y = s.cy + s.r * Math.sin(a);
+
+      // twinkle
+      const tw = (1 - CONFIG.twinkle) + CONFIG.twinkle * (0.6 + 0.4*Math.sin(now/1000 * s.twSpd + s.tw));
+      const alpha = (0.20 + (1 - s.mag) * 0.80) * tw;
+
+      // subtle color variance (blue-white)
+      const cool = 220 + Math.floor(s.hueShift * 25);
+      ctx.fillStyle = `rgba(${200 + (cool-220)}, ${220 + (cool-220)/2}, 255, ${alpha})`;
+
+      // tiny glow for brighter stars
+      const rad = s.size * DPR;
+      ctx.beginPath();
+      ctx.arc(x, y, rad, 0, Math.PI*2);
+      ctx.fill();
+
+      if(s.mag < 0.12){
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.25;
+        ctx.beginPath();
+        ctx.arc(x, y, rad*3.2, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // constellation lines
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for(const [i,j,str] of links){
+      const A = stars[i], B = stars[j];
+      if(!A || !B) continue;
+
+      const ax = A.cx + A.r * Math.cos(A.a + rot);
+      const ay = A.cy + A.r * Math.sin(A.a + rot);
+      const bx = B.cx + B.r * Math.cos(B.a + rot);
+      const by = B.cy + B.r * Math.sin(B.a + rot);
+
+      ctx.strokeStyle = `rgba(233,238,252,${str})`;
+      ctx.lineWidth = 1 * DPR;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // circular boundary hint (poster-map vibe)
+    // Get current map center and R from first star (they all share)
+    if(stars[0]){
+      const {cx, cy, R} = stars[0];
+      ctx.save();
+      ctx.strokeStyle = "rgba(233,238,252,.18)";
+      ctx.lineWidth = 1 * DPR;
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, 0, Math.PI*2);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(233,238,252,.06)";
+      ctx.beginPath();
+      ctx.arc(cx, cy, R*0.66, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // shooting star
+    maybeSpawnShootingStar(now);
+    if(shooting){
+      shooting.life++;
+      const x1 = shooting.x;
+      const y1 = shooting.y;
+      shooting.x += shooting.vx;
+      shooting.y += shooting.vy;
+
+      ctx.save();
+      const a = 1 - (shooting.life / shooting.maxLife);
+      ctx.globalAlpha = Math.max(0, a);
+      ctx.strokeStyle = "rgba(200,230,255,0.9)";
+      ctx.lineWidth = 2 * DPR;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - shooting.vx*4.2, y1 - shooting.vy*4.2);
+      ctx.stroke();
+      ctx.restore();
+
+      if(shooting.life >= shooting.maxLife) shooting = null;
+    }
+
+    requestAnimationFrame(draw);
+  }
+
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
