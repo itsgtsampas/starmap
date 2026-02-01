@@ -6,8 +6,8 @@
   <title>Our Sky</title>
   <style>
     :root{
-      --bg1:#05060a;
-      --bg2:#070a12;
+      --bg1:#020408;
+      --bg2:#050810;
       --ink:#e9eefc;
       --muted:rgba(233,238,252,.72);
       --thin:rgba(233,238,252,.35);
@@ -16,7 +16,7 @@
     html,body{
       height:100%;
       margin:0;
-      background: radial-gradient(1200px 1200px at 50% 35%, #0b1630 0%, var(--bg1) 45%, #02030a 100%);
+      background: var(--bg1);
       overflow:hidden;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       color: var(--ink);
@@ -33,6 +33,12 @@
       height:100%;
       display:block;
     }
+    #bgCanvas{
+      z-index: 0;
+    }
+    #sky{
+      z-index: 1;
+    }
 
     /* Poster overlay */
     .poster{
@@ -42,15 +48,16 @@
       display:grid;
       place-items:center;
       padding: clamp(18px, 3vw, 40px);
+      z-index: 2;
     }
     .frame{
       width:min(820px, 92vw);
       aspect-ratio: 3 / 4;
       border: 1px solid rgba(233,238,252,.22);
       border-radius: 18px;
-      box-shadow: 0 24px 80px rgba(0,0,0,.55);
+      box-shadow: 0 24px 80px rgba(0,0,0,.55), 0 0 120px rgba(60,100,180,0.08);
       position:relative;
-      background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.00));
+      background: linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.00));
       overflow:hidden;
     }
     .frame::before{
@@ -99,7 +106,6 @@
       transform: translateY(-1px);
     }
 
-    /* Optional: tiny hint in corner */
     .corner{
       position:absolute;
       top:18px;
@@ -118,20 +124,21 @@
 </head>
 <body>
 <div id="wrap">
+  <canvas id="bgCanvas"></canvas>
   <canvas id="sky"></canvas>
 
   <div class="poster">
     <div class="frame" aria-hidden="true">
       <div class="corner">our sky</div>
       <div class="label">
-        <p class="title">The night we became “us”</p>
+        <p class="title">The night we became "us"</p>
         <p class="names">You & Her</p>
         <p class="sub">
-          <span id="dateText">January 8, 2025</span>
+          <span id="dateText">January 8, 2026</span>
           <span class="dot"></span>
-          <span id="placeText">Your City</span>
+          <span id="placeText">Athens</span>
           <span class="dot"></span>
-          <span id="coordsText">00.000°N 00.000°E</span>
+          <span id="coordsText">37.9838°N 23.7275°E</span>
         </p>
       </div>
     </div>
@@ -140,34 +147,209 @@
 
 <script>
 (() => {
-  // ========= Customize these =========
-  // If you know the exact year, set it. Otherwise pick the correct one.
+  // ========= Configuration =========
   const CONFIG = {
-    year: 2025,
-    month: 1,    // January
+    year: 2026,
+    month: 1,      // January
     day: 8,
+    hour: 21,      // 9 PM local time - romantic evening
     placeName: "Athens",
     lat: 37.9838,
     lon: 23.7275,
+    timezone: 2,   // UTC+2 for Athens
 
-    // Visual style knobs
-    density: 1200,         // star count baseline
-    rotationSpeed: 0.0025, // radians per second
-    twinkle: 0.55,         // 0..1
-    lines: 55,             // constellation-ish lines
+    // Visual style
+    twinkleIntensity: 0.6,
+    showConstellationLines: true,
+    nebulaIntensity: 0.35,
   };
 
+  // ========= Bright Star Catalog =========
+  // Real star data: [name, RA (hours), Dec (degrees), magnitude, color index]
+  // Using the 100 brightest stars visible from Northern Hemisphere
+  const STARS = [
+    ["Sirius", 6.752, -16.716, -1.46, -0.01],
+    ["Canopus", 6.399, -52.696, -0.72, 0.15],
+    ["Arcturus", 14.261, 19.182, -0.04, 1.23],
+    ["Vega", 18.616, 38.784, 0.03, 0.00],
+    ["Capella", 5.278, 45.998, 0.08, 0.80],
+    ["Rigel", 5.242, -8.202, 0.12, -0.03],
+    ["Procyon", 7.655, 5.225, 0.34, 0.42],
+    ["Betelgeuse", 5.919, 7.407, 0.42, 1.85],
+    ["Altair", 19.846, 8.868, 0.77, 0.22],
+    ["Aldebaran", 4.599, 16.509, 0.85, 1.54],
+    ["Antares", 16.490, -26.432, 0.96, 1.83],
+    ["Spica", 13.420, -11.161, 0.97, -0.23],
+    ["Pollux", 7.755, 28.026, 1.14, 1.00],
+    ["Fomalhaut", 22.961, -29.622, 1.16, 0.09],
+    ["Deneb", 20.690, 45.280, 1.25, 0.09],
+    ["Regulus", 10.139, 11.967, 1.35, -0.11],
+    ["Castor", 7.577, 31.888, 1.58, 0.03],
+    ["Bellatrix", 5.419, 6.350, 1.64, -0.22],
+    ["Elnath", 5.438, 28.608, 1.65, -0.13],
+    ["Alnilam", 5.603, -1.202, 1.70, -0.18],
+    ["Alnitak", 5.679, -1.943, 1.77, -0.21],
+    ["Alioth", 12.900, 55.960, 1.77, -0.02],
+    ["Dubhe", 11.062, 61.751, 1.79, 1.07],
+    ["Mirfak", 3.405, 49.861, 1.80, 0.48],
+    ["Kaus Australis", 18.403, -34.385, 1.80, -0.03],
+    ["Alkaid", 13.792, 49.313, 1.86, -0.19],
+    ["Sargas", 17.622, -42.998, 1.87, 0.40],
+    ["Menkalinan", 5.992, 44.948, 1.90, 0.08],
+    ["Alhena", 6.629, 16.399, 1.93, 0.00],
+    ["Peacock", 20.428, -56.735, 1.94, -0.20],
+    ["Mirzam", 6.378, -17.956, 1.98, -0.24],
+    ["Alphard", 9.460, -8.659, 1.98, 1.44],
+    ["Hamal", 2.120, 23.463, 2.00, 1.15],
+    ["Polaris", 2.530, 89.264, 2.02, 0.60],
+    ["Diphda", 0.727, -17.987, 2.02, 1.02],
+    ["Mizar", 13.399, 54.925, 2.04, 0.02],
+    ["Nunki", 18.921, -26.297, 2.05, -0.13],
+    ["Miaplacidus", 9.220, -69.717, 1.68, 0.00],
+    ["Alpheratz", 0.140, 29.091, 2.06, -0.11],
+    ["Algenib", 0.220, 15.185, 2.83, -0.22],
+    ["Mirach", 1.163, 35.620, 2.05, 1.58],
+    ["Rasalhague", 17.582, 12.560, 2.07, 0.15],
+    ["Algol", 3.136, 40.957, 2.12, -0.05],
+    ["Denebola", 11.818, 14.572, 2.13, 0.09],
+    ["Naos", 8.059, -40.003, 2.25, -0.27],
+    ["Gamma Velorum", 8.159, -47.337, 1.78, -0.22],
+    ["Wezen", 7.140, -26.393, 1.84, 0.67],
+    ["Sadr", 20.370, 40.257, 2.20, 0.67],
+    ["Saiph", 5.796, -9.670, 2.06, -0.18],
+    ["Schedar", 0.675, 56.537, 2.23, 1.17],
+    ["Eltanin", 17.944, 51.489, 2.23, 1.52],
+    ["Mintaka", 5.533, -0.299, 2.23, -0.21],
+    ["Caph", 0.153, 59.150, 2.27, 0.34],
+    ["Epsilon Centauri", 13.665, -53.467, 2.30, -0.22],
+    ["Dschubba", 16.006, -22.622, 2.32, -0.12],
+    ["Larawag", 17.708, -37.043, 2.29, 1.46],
+    ["Eta Centauri", 14.592, -42.158, 2.31, -0.19],
+    ["Merak", 11.031, 56.382, 2.37, 0.03],
+    ["Izar", 14.750, 27.074, 2.37, 0.97],
+    ["Enif", 21.736, 9.875, 2.39, 1.52],
+    ["Ankaa", 0.438, -42.306, 2.39, 1.09],
+    ["Phecda", 11.897, 53.695, 2.44, 0.04],
+    ["Sabik", 17.173, -15.725, 2.43, 0.06],
+    ["Scheat", 23.063, 28.083, 2.42, 1.67],
+    ["Aludra", 7.402, -29.303, 2.45, -0.08],
+    ["Markab", 23.079, 15.205, 2.49, -0.04],
+    ["Alderamin", 21.310, 62.585, 2.51, 0.22],
+    ["Markeb", 9.368, -55.011, 2.50, -0.17],
+    ["Zubeneschamali", 15.283, -9.383, 2.61, -0.11],
+    ["Acrab", 16.091, -19.806, 2.62, -0.07],
+    ["Rasalgethi", 17.244, 14.390, 2.78, 1.44],
+    ["Kochab", 14.845, 74.156, 2.08, 1.47],
+    ["Algedi", 20.294, -12.508, 2.87, 0.84],
+    ["Alphecca", 15.578, 26.715, 2.23, 0.02],
+    ["Unukalhai", 15.737, 6.426, 2.65, 1.24],
+    ["Lesath", 17.530, -37.296, 2.69, -0.22],
+    ["Zubenelgenubi", 14.848, -16.042, 2.75, 0.14],
+    ["Kornephoros", 16.503, 21.490, 2.77, 0.94],
+    ["Thuban", 14.073, 64.376, 3.65, -0.05],
+    ["Phad", 11.897, 53.695, 2.44, 0.04],
+    ["Alshain", 19.922, 6.407, 3.71, 0.86],
+    ["Tarazed", 19.771, 10.613, 2.72, 1.51],
+    ["Gienah", 12.263, -17.542, 2.59, -0.12],
+    ["Zosma", 11.235, 20.524, 2.56, 0.12],
+    ["Minkar", 12.168, -22.620, 3.02, 1.43],
+    ["Acamar", 2.971, -40.305, 2.91, 0.13],
+    ["Cursa", 5.130, -5.086, 2.79, 0.13],
+    ["Hassaleh", 4.950, 33.166, 2.69, 0.54],
+    ["Menkib", 3.982, 35.791, 2.85, -0.18],
+    ["Sheratan", 1.911, 20.808, 2.64, 0.13],
+    ["Nashira", 21.668, -16.662, 3.68, 0.04],
+    ["Albali", 20.795, -9.496, 3.77, 0.02],
+    ["Skat", 22.911, -15.821, 3.27, -0.02],
+    ["Atria", 16.811, -69.028, 1.92, 1.44],
+    ["Alula Australis", 11.182, 31.529, 3.78, 0.59],
+    ["Alula Borealis", 11.310, 33.094, 3.48, 1.40],
+  ];
+
+  // Constellation line connections [star1_index, star2_index]
+  const CONSTELLATION_LINES = [
+    // Orion
+    [5, 7], [5, 17], [7, 17], [5, 48], [7, 19], [19, 20], [19, 51],
+    // Ursa Major (Big Dipper)
+    [21, 22], [22, 57], [57, 61], [61, 35], [35, 25], [25, 21],
+    // Cassiopeia
+    [38, 52], [52, 49], [49, 42],
+    // Cygnus
+    [14, 47], [47, 8],
+    // Leo
+    [15, 43], [43, 83],
+    // Gemini
+    [6, 12], [12, 16],
+    // Taurus
+    [9, 18], [18, 87],
+    // Scorpius
+    [10, 54], [54, 75],
+  ];
+
   // Update overlay text
-  const dateText = new Date(Date.UTC(CONFIG.year, CONFIG.month-1, CONFIG.day));
-  const pretty = dateText.toLocaleDateString(undefined, { year:"numeric", month:"long", day:"numeric" });
-  document.getElementById("dateText").textContent = pretty;
+  document.getElementById("dateText").textContent = `January ${CONFIG.day}, ${CONFIG.year}`;
   document.getElementById("placeText").textContent = CONFIG.placeName;
   document.getElementById("coordsText").textContent =
     `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
 
+  // ========= Astronomical calculations =========
+  function julianDate(year, month, day, hour) {
+    if (month <= 2) {
+      year -= 1;
+      month += 12;
+    }
+    const A = Math.floor(year / 100);
+    const B = 2 - A + Math.floor(A / 4);
+    const JD = Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + (hour / 24) + B - 1524.5;
+    return JD;
+  }
+
+  function localSiderealTime(jd, longitude) {
+    const T = (jd - 2451545.0) / 36525;
+    let GST = 280.46061837 + 360.98564736629 * (jd - 2451545.0) + T * T * (0.000387933 - T / 38710000);
+    GST = GST % 360;
+    if (GST < 0) GST += 360;
+    let LST = GST + longitude;
+    LST = LST % 360;
+    if (LST < 0) LST += 360;
+    return LST;
+  }
+
+  function raDecToAltAz(ra, dec, lat, lst) {
+    // Convert to radians
+    const raRad = (ra * 15) * Math.PI / 180; // RA is in hours, convert to degrees then radians
+    const decRad = dec * Math.PI / 180;
+    const latRad = lat * Math.PI / 180;
+    const lstRad = lst * Math.PI / 180;
+
+    // Hour angle
+    const ha = lstRad - raRad;
+
+    // Altitude
+    const sinAlt = Math.sin(decRad) * Math.sin(latRad) + Math.cos(decRad) * Math.cos(latRad) * Math.cos(ha);
+    const alt = Math.asin(sinAlt);
+
+    // Azimuth
+    const cosAz = (Math.sin(decRad) - Math.sin(alt) * Math.sin(latRad)) / (Math.cos(alt) * Math.cos(latRad));
+    const sinAz = -Math.sin(ha) * Math.cos(decRad) / Math.cos(alt);
+    let az = Math.atan2(sinAz, cosAz);
+
+    return {
+      altitude: alt * 180 / Math.PI,
+      azimuth: (az * 180 / Math.PI + 360) % 360
+    };
+  }
+
+  // Calculate star positions for the given date/time/location
+  const utcHour = CONFIG.hour - CONFIG.timezone;
+  const jd = julianDate(CONFIG.year, CONFIG.month, CONFIG.day, utcHour);
+  const lst = localSiderealTime(jd, CONFIG.lon);
+
   // ========= Canvas setup =========
   const canvas = document.getElementById("sky");
   const ctx = canvas.getContext("2d", { alpha: true });
+  const bgCanvas = document.getElementById("bgCanvas");
+  const bgCtx = bgCanvas.getContext("2d", { alpha: false });
 
   let W = 0, H = 0, DPR = 1;
   function resize(){
@@ -176,266 +358,318 @@
     H = Math.floor(window.innerHeight * DPR);
     canvas.width = W;
     canvas.height = H;
+    bgCanvas.width = W;
+    bgCanvas.height = H;
+    drawBackground();
   }
   window.addEventListener("resize", resize, { passive:true });
   resize();
 
-  // ========= Seeded RNG (deterministic sky per date/location) =========
-  // Good enough for romance. Not good enough for astrophysics. You’ve been warned.
-  const seed =
-    (CONFIG.year * 10000 + CONFIG.month * 100 + CONFIG.day) ^
-    (Math.floor((CONFIG.lat + 90) * 1000) << 1) ^
-    (Math.floor((CONFIG.lon + 180) * 1000) << 2);
+  // ========= Background with nebula effects =========
+  function drawBackground() {
+    // Base dark gradient
+    const baseGrad = bgCtx.createRadialGradient(W * 0.5, H * 0.4, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8);
+    baseGrad.addColorStop(0, '#0a0d18');
+    baseGrad.addColorStop(0.3, '#060912');
+    baseGrad.addColorStop(0.6, '#030508');
+    baseGrad.addColorStop(1, '#010203');
+    bgCtx.fillStyle = baseGrad;
+    bgCtx.fillRect(0, 0, W, H);
 
-  function mulberry32(a){
-    return function(){
-      let t = a += 0x6D2B79F5;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
+    // Nebula clouds using multiple layered gradients
+    const nebulaColors = [
+      { x: 0.3, y: 0.25, r: 0.35, color1: 'rgba(30, 50, 100, 0.12)', color2: 'rgba(20, 30, 60, 0)' },
+      { x: 0.7, y: 0.35, r: 0.3, color1: 'rgba(60, 30, 80, 0.08)', color2: 'rgba(40, 20, 60, 0)' },
+      { x: 0.5, y: 0.5, r: 0.4, color1: 'rgba(20, 40, 80, 0.10)', color2: 'rgba(10, 20, 40, 0)' },
+      { x: 0.2, y: 0.6, r: 0.25, color1: 'rgba(40, 60, 100, 0.06)', color2: 'rgba(20, 30, 50, 0)' },
+      { x: 0.8, y: 0.7, r: 0.28, color1: 'rgba(50, 30, 70, 0.07)', color2: 'rgba(30, 20, 50, 0)' },
+    ];
+
+    const intensity = CONFIG.nebulaIntensity;
+    for (const neb of nebulaColors) {
+      const grad = bgCtx.createRadialGradient(
+        W * neb.x, H * neb.y, 0,
+        W * neb.x, H * neb.y, Math.max(W, H) * neb.r
+      );
+      grad.addColorStop(0, neb.color1.replace('0.', (parseFloat(neb.color1.match(/[\d.]+\)$/)[0]) * intensity).toFixed(2) + ')'));
+      grad.addColorStop(0.5, neb.color1.replace('0.', (parseFloat(neb.color1.match(/[\d.]+\)$/)[0]) * intensity * 0.5).toFixed(2) + ')'));
+      grad.addColorStop(1, neb.color2);
+      bgCtx.fillStyle = grad;
+      bgCtx.fillRect(0, 0, W, H);
+    }
+
+    // Cosmic dust - subtle noise-like particles
+    bgCtx.save();
+    const dustCount = Math.floor((W * H) / 8000);
+    for (let i = 0; i < dustCount; i++) {
+      const x = Math.random() * W;
+      const y = Math.random() * H;
+      const size = Math.random() * 1.2 * DPR;
+      const alpha = Math.random() * 0.15 + 0.02;
+      bgCtx.fillStyle = `rgba(180, 200, 255, ${alpha})`;
+      bgCtx.beginPath();
+      bgCtx.arc(x, y, size, 0, Math.PI * 2);
+      bgCtx.fill();
+    }
+    bgCtx.restore();
+
+    // Subtle vignette
+    const vignette = bgCtx.createRadialGradient(W * 0.5, H * 0.5, W * 0.2, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(0.7, 'rgba(0,0,0,0.2)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.5)');
+    bgCtx.fillStyle = vignette;
+    bgCtx.fillRect(0, 0, W, H);
   }
-  const rand = mulberry32(seed >>> 0);
 
-  // ========= Generate stars in a circular "map" =========
-  // We'll draw a circular star field centered on the poster frame.
+  // ========= Get poster dimensions =========
   function posterRect(){
-    // Approx match the CSS frame; still fine even if it's not pixel perfect.
     const frame = document.querySelector(".frame");
     const r = frame.getBoundingClientRect();
-    return { x:r.left, y:r.top, w:r.width, h:r.height };
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
   }
 
-  let stars = [];
-  function buildStars(){
-    stars = [];
+  // ========= Convert stars to screen positions =========
+  function getStarScreenPositions() {
     const pr = posterRect();
+    const cx = (pr.x + pr.w / 2) * DPR;
+    const cy = (pr.y + pr.h / 2) * DPR;
+    const R = Math.min(pr.w, pr.h) * 0.42 * DPR;
 
-    // map center roughly in viewport coords then scale to DPR canvas coords
-    const cx = (pr.x + pr.w/2) * DPR;
-    const cy = (pr.y + pr.h/2) * DPR;
+    const visibleStars = [];
 
-    // radius based on frame size
-    const R = Math.min(pr.w, pr.h) * 0.39 * DPR;
+    for (let i = 0; i < STARS.length; i++) {
+      const [name, ra, dec, mag, colorIndex] = STARS[i];
+      const pos = raDecToAltAz(ra, dec, CONFIG.lat, lst);
 
-    // increase count with area a bit
-    const count = Math.floor(CONFIG.density * (R / (260*DPR)));
+      // Only show stars above the horizon
+      if (pos.altitude > 0) {
+        // Stereographic projection for the sky dome
+        const r = R * (90 - pos.altitude) / 90;
+        const angle = (pos.azimuth - 180) * Math.PI / 180; // Rotate so north is up
 
-    for(let i=0;i<count;i++){
-      // polar distribution (more stars near rim = poster-ish)
-      const u = rand();
-      const v = rand();
-      const r = R * Math.pow(u, 0.65);
-      const a = v * Math.PI * 2;
+        const x = cx + r * Math.sin(angle);
+        const y = cy - r * Math.cos(angle); // Invert Y for screen coords
 
-      // base brightness and size
-      const mag = Math.pow(rand(), 2.6); // many dim, few bright
-      const size = 0.6 + (1 - mag) * 1.9; // brighter -> larger
-      const hueShift = rand(); // subtle blue-white variance
+        // Size based on magnitude (brighter = larger)
+        const size = Math.max(0.8, (3.5 - mag) * 0.8) * DPR;
 
-      stars.push({
-        r, a,
-        mag,
-        size,
-        tw: rand() * Math.PI * 2,
-        twSpd: 0.6 + rand() * 1.6,
-        hueShift,
-        cx, cy, R
-      });
-    }
-  }
-
-  // ========= Constellation-ish lines =========
-  let links = [];
-  function buildLinks(){
-    links = [];
-    // pick some brighter stars and connect to nearest neighbors
-    const bright = stars
-      .map((s, idx) => ({ s, idx }))
-      .sort((A,B) => A.s.mag - B.s.mag) // lower mag => brighter in our fake system
-      .slice(0, Math.min(220, Math.floor(stars.length * 0.18)));
-
-    // quick nearest neighbor by brute force (still fine at this size)
-    const maxLinks = CONFIG.lines;
-    for(let i=0;i<maxLinks;i++){
-      const a = bright[Math.floor(rand() * bright.length)];
-      let best = null, bestD = Infinity;
-
-      for(let j=0;j<24;j++){
-        const b = bright[Math.floor(rand() * bright.length)];
-        if(a.idx === b.idx) continue;
-
-        const ax = a.s.r * Math.cos(a.s.a);
-        const ay = a.s.r * Math.sin(a.s.a);
-        const bx = b.s.r * Math.cos(b.s.a);
-        const by = b.s.r * Math.sin(b.s.a);
-
-        const d = (ax-bx)*(ax-bx) + (ay-by)*(ay-by);
-        if(d < bestD){
-          bestD = d; best = b;
+        // Color based on color index (B-V)
+        let color;
+        if (colorIndex < 0) {
+          color = { r: 180, g: 200, b: 255 }; // Blue-white
+        } else if (colorIndex < 0.3) {
+          color = { r: 220, g: 230, b: 255 }; // White
+        } else if (colorIndex < 0.6) {
+          color = { r: 255, g: 250, b: 240 }; // Yellow-white
+        } else if (colorIndex < 1.0) {
+          color = { r: 255, g: 230, b: 180 }; // Yellow
+        } else if (colorIndex < 1.5) {
+          color = { r: 255, g: 200, b: 150 }; // Orange
+        } else {
+          color = { r: 255, g: 160, b: 120 }; // Red
         }
-      }
 
-      if(best && bestD < Math.pow((a.s.R * 0.22), 2)){
-        links.push([a.idx, best.idx, 0.08 + rand() * 0.16]);
+        visibleStars.push({
+          index: i,
+          name,
+          x, y,
+          size,
+          mag,
+          color,
+          twinklePhase: Math.random() * Math.PI * 2,
+          twinkleSpeed: 0.8 + Math.random() * 2.5,
+          twinkleOffset: Math.random() * 0.3,
+          pulsePhase: Math.random() * Math.PI * 2,
+          pulseSpeed: 0.3 + Math.random() * 0.4,
+        });
       }
     }
+
+    return { stars: visibleStars, cx, cy, R };
   }
 
-  buildStars();
-  buildLinks();
+  let starData = getStarScreenPositions();
 
-  // rebuild on resize (so the circle stays aligned)
+  // Rebuild on resize
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { buildStars(); buildLinks(); }, 120);
-  }, { passive:true });
+    resizeTimer = setTimeout(() => {
+      starData = getStarScreenPositions();
+    }, 120);
+  }, { passive: true });
 
   // ========= Shooting star =========
   let shooting = null;
-  function maybeSpawnShootingStar(t){
-    if(shooting) return;
-    // small chance per frame
-    if(rand() < 0.0022){
-      const pr = posterRect();
-      const cx = (pr.x + pr.w/2) * DPR;
-      const cy = (pr.y + pr.h/2) * DPR;
-      const R = Math.min(pr.w, pr.h) * 0.39 * DPR;
-
-      // spawn near rim, shoot across
-      const ang = rand() * Math.PI * 2;
-      const startR = R * (0.85 + rand() * 0.18);
+  function maybeSpawnShootingStar() {
+    if (shooting) return;
+    if (Math.random() < 0.002) {
+      const { cx, cy, R } = starData;
+      const ang = Math.random() * Math.PI * 2;
+      const startR = R * (0.7 + Math.random() * 0.25);
       const x0 = cx + startR * Math.cos(ang);
       const y0 = cy + startR * Math.sin(ang);
 
-      const dir = ang + (Math.PI/2) * (rand() < 0.5 ? 1 : -1);
+      const dir = ang + Math.PI * (0.3 + Math.random() * 0.4) * (Math.random() < 0.5 ? 1 : -1);
       shooting = {
         x: x0, y: y0,
-        vx: Math.cos(dir) * (6 + rand() * 5) * DPR,
-        vy: Math.sin(dir) * (6 + rand() * 5) * DPR,
+        vx: Math.cos(dir) * (8 + Math.random() * 6) * DPR,
+        vy: Math.sin(dir) * (8 + Math.random() * 6) * DPR,
         life: 0,
-        maxLife: 26 + Math.floor(rand() * 18),
-        t0: t
+        maxLife: 20 + Math.floor(Math.random() * 25),
+        width: 1.5 + Math.random() * 1.5,
       };
     }
   }
 
-  // ========= Draw loop =========
-  let last = performance.now();
-  let rot = 0;
+  // ========= Animation loop =========
+  let lastTime = performance.now();
 
-  function draw(now){
-    const dt = Math.min(0.033, (now - last) / 1000);
-    last = now;
+  function draw(now) {
+    const dt = (now - lastTime) / 1000;
+    lastTime = now;
 
-    rot += CONFIG.rotationSpeed * dt;
+    ctx.clearRect(0, 0, W, H);
 
-    // fade the whole canvas slightly for smoothness
-    ctx.clearRect(0,0,W,H);
+    const { stars, cx, cy, R } = starData;
 
-    // soft vignette behind the poster area
-    // (works best if the poster frame is centered-ish)
-    ctx.save();
-    ctx.globalAlpha = 0.9;
-    const grd = ctx.createRadialGradient(W*0.5, H*0.38, 0, W*0.5, H*0.38, Math.min(W,H)*0.65);
-    grd.addColorStop(0, "rgba(12,28,60,0.20)");
-    grd.addColorStop(0.6, "rgba(3,5,12,0.00)");
-    grd.addColorStop(1, "rgba(0,0,0,0.35)");
-    ctx.fillStyle = grd;
-    ctx.fillRect(0,0,W,H);
-    ctx.restore();
+    // Draw stars with enhanced twinkling
+    for (const star of stars) {
+      // Multi-layered twinkle effect
+      const twinkle1 = Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
+      const twinkle2 = Math.sin(now / 1500 * star.twinkleSpeed * 0.7 + star.twinklePhase * 1.3);
+      const twinkle3 = Math.sin(now / 2000 * star.twinkleSpeed * 0.5 + star.twinklePhase * 0.8);
 
-    // draw stars
-    for(const s of stars){
-      const a = s.a + rot;
-      const x = s.cx + s.r * Math.cos(a);
-      const y = s.cy + s.r * Math.sin(a);
+      const twinkleFactor = 0.6 + 0.4 * (twinkle1 * 0.5 + twinkle2 * 0.3 + twinkle3 * 0.2);
+      const twinkleIntensity = (1 - CONFIG.twinkleIntensity) + CONFIG.twinkleIntensity * twinkleFactor;
 
-      // twinkle
-      const tw = (1 - CONFIG.twinkle) + CONFIG.twinkle * (0.6 + 0.4*Math.sin(now/1000 * s.twSpd + s.tw));
-      const alpha = (0.20 + (1 - s.mag) * 0.80) * tw;
+      // Subtle pulsing for brighter stars
+      const pulse = star.mag < 1.5 ? 1 + 0.08 * Math.sin(now / 1000 * star.pulseSpeed + star.pulsePhase) : 1;
 
-      // subtle color variance (blue-white)
-      const cool = 220 + Math.floor(s.hueShift * 25);
-      ctx.fillStyle = `rgba(${200 + (cool-220)}, ${220 + (cool-220)/2}, 255, ${alpha})`;
+      const baseAlpha = Math.min(1, 0.4 + (3 - star.mag) * 0.15);
+      const alpha = baseAlpha * twinkleIntensity;
+      const currentSize = star.size * pulse;
 
-      // tiny glow for brighter stars
-      const rad = s.size * DPR;
+      const { r, g, b } = star.color;
+
+      // Outer glow for brighter stars
+      if (star.mag < 2) {
+        const glowSize = currentSize * (3 + (2 - star.mag) * 1.5);
+        const glowAlpha = alpha * 0.15 * twinkleIntensity;
+        const glowGrad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, glowSize);
+        glowGrad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${glowAlpha})`);
+        glowGrad.addColorStop(0.4, `rgba(${r}, ${g}, ${b}, ${glowAlpha * 0.4})`);
+        glowGrad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+        ctx.fillStyle = glowGrad;
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, glowSize, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Star core with gradient
+      const coreGrad = ctx.createRadialGradient(star.x, star.y, 0, star.x, star.y, currentSize * 1.5);
+      coreGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+      coreGrad.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${alpha * 0.9})`);
+      coreGrad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+      ctx.fillStyle = coreGrad;
       ctx.beginPath();
-      ctx.arc(x, y, rad, 0, Math.PI*2);
+      ctx.arc(star.x, star.y, currentSize * 1.5, 0, Math.PI * 2);
       ctx.fill();
 
-      if(s.mag < 0.12){
+      // Diffraction spikes for very bright stars
+      if (star.mag < 0.5) {
         ctx.save();
-        ctx.globalAlpha = alpha * 0.25;
+        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${alpha * 0.3})`;
+        ctx.lineWidth = 0.8 * DPR;
+        const spikeLen = currentSize * 4;
         ctx.beginPath();
-        ctx.arc(x, y, rad*3.2, 0, Math.PI*2);
-        ctx.fill();
+        ctx.moveTo(star.x - spikeLen, star.y);
+        ctx.lineTo(star.x + spikeLen, star.y);
+        ctx.moveTo(star.x, star.y - spikeLen);
+        ctx.lineTo(star.x, star.y + spikeLen);
+        ctx.stroke();
         ctx.restore();
       }
     }
 
-    // constellation lines
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    for(const [i,j,str] of links){
-      const A = stars[i], B = stars[j];
-      if(!A || !B) continue;
-
-      const ax = A.cx + A.r * Math.cos(A.a + rot);
-      const ay = A.cy + A.r * Math.sin(A.a + rot);
-      const bx = B.cx + B.r * Math.cos(B.a + rot);
-      const by = B.cy + B.r * Math.sin(B.a + rot);
-
-      ctx.strokeStyle = `rgba(233,238,252,${str})`;
-      ctx.lineWidth = 1 * DPR;
-      ctx.beginPath();
-      ctx.moveTo(ax, ay);
-      ctx.lineTo(bx, by);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // circular boundary hint (poster-map vibe)
-    // Get current map center and R from first star (they all share)
-    if(stars[0]){
-      const {cx, cy, R} = stars[0];
+    // Constellation lines
+    if (CONFIG.showConstellationLines) {
       ctx.save();
-      ctx.strokeStyle = "rgba(233,238,252,.18)";
-      ctx.lineWidth = 1 * DPR;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, 0, Math.PI*2);
-      ctx.stroke();
-
-      ctx.strokeStyle = "rgba(233,238,252,.06)";
-      ctx.beginPath();
-      ctx.arc(cx, cy, R*0.66, 0, Math.PI*2);
-      ctx.stroke();
+      ctx.globalCompositeOperation = "lighter";
+      for (const [i, j] of CONSTELLATION_LINES) {
+        const starA = stars.find(s => s.index === i);
+        const starB = stars.find(s => s.index === j);
+        if (starA && starB) {
+          const lineGrad = ctx.createLinearGradient(starA.x, starA.y, starB.x, starB.y);
+          lineGrad.addColorStop(0, 'rgba(100, 140, 200, 0.08)');
+          lineGrad.addColorStop(0.5, 'rgba(100, 140, 200, 0.12)');
+          lineGrad.addColorStop(1, 'rgba(100, 140, 200, 0.08)');
+          ctx.strokeStyle = lineGrad;
+          ctx.lineWidth = 1 * DPR;
+          ctx.beginPath();
+          ctx.moveTo(starA.x, starA.y);
+          ctx.lineTo(starB.x, starB.y);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     }
 
-    // shooting star
-    maybeSpawnShootingStar(now);
-    if(shooting){
+    // Circular boundary
+    ctx.save();
+    ctx.strokeStyle = "rgba(233, 238, 252, 0.15)";
+    ctx.lineWidth = 1 * DPR;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Inner circle
+    ctx.strokeStyle = "rgba(233, 238, 252, 0.06)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Shooting star
+    maybeSpawnShootingStar();
+    if (shooting) {
       shooting.life++;
+      const progress = shooting.life / shooting.maxLife;
       const x1 = shooting.x;
       const y1 = shooting.y;
       shooting.x += shooting.vx;
       shooting.y += shooting.vy;
 
       ctx.save();
-      const a = 1 - (shooting.life / shooting.maxLife);
-      ctx.globalAlpha = Math.max(0, a);
-      ctx.strokeStyle = "rgba(200,230,255,0.9)";
-      ctx.lineWidth = 2 * DPR;
+      const alpha = Math.max(0, 1 - progress);
+
+      // Glowing head
+      const headGrad = ctx.createRadialGradient(x1, y1, 0, x1, y1, 6 * DPR);
+      headGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+      headGrad.addColorStop(0.5, `rgba(200, 230, 255, ${alpha * 0.5})`);
+      headGrad.addColorStop(1, `rgba(150, 200, 255, 0)`);
+      ctx.fillStyle = headGrad;
+      ctx.beginPath();
+      ctx.arc(x1, y1, 6 * DPR, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Trail
+      const trailLen = 5 + progress * 3;
+      const trailGrad = ctx.createLinearGradient(x1, y1, x1 - shooting.vx * trailLen, y1 - shooting.vy * trailLen);
+      trailGrad.addColorStop(0, `rgba(200, 230, 255, ${alpha * 0.8})`);
+      trailGrad.addColorStop(1, `rgba(150, 200, 255, 0)`);
+      ctx.strokeStyle = trailGrad;
+      ctx.lineWidth = shooting.width * DPR * (1 - progress * 0.5);
+      ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(x1, y1);
-      ctx.lineTo(x1 - shooting.vx*4.2, y1 - shooting.vy*4.2);
+      ctx.lineTo(x1 - shooting.vx * trailLen, y1 - shooting.vy * trailLen);
       ctx.stroke();
+
       ctx.restore();
 
-      if(shooting.life >= shooting.maxLife) shooting = null;
+      if (shooting.life >= shooting.maxLife) shooting = null;
     }
 
     requestAnimationFrame(draw);
