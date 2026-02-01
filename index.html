@@ -94,6 +94,72 @@
       text-transform:uppercase;
       color: rgba(233,238,252,.35);
     }
+    .moon{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      width:12px;
+      height:12px;
+      border-radius:50%;
+      border:1px solid rgba(233,238,252,.45);
+      position:relative;
+      margin-left:8px;
+      opacity:.7;
+    }
+    .moon::after{
+      content:"";
+      position:absolute;
+      inset:2px 4px 2px 2px;
+      background: rgba(233,238,252,.6);
+      border-radius:50%;
+      filter: blur(0.2px);
+    }
+    .ruler{
+      position:absolute;
+      top:90px;
+      right:18px;
+      width:1px;
+      height:120px;
+      background: rgba(233,238,252,.18);
+    }
+    .ruler::before,
+    .ruler::after{
+      content:"";
+      position:absolute;
+      left:-4px;
+      width:9px;
+      height:1px;
+      background: rgba(233,238,252,.2);
+    }
+    .ruler::before{ top:0; }
+    .ruler::after{ bottom:0; }
+    .ruler .tag{
+      position:absolute;
+      top:50%;
+      right:8px;
+      transform: translateY(-50%);
+      font-size:9px;
+      letter-spacing:.18em;
+      text-transform:uppercase;
+      color: rgba(233,238,252,.45);
+      white-space:nowrap;
+    }
+    .secret{
+      position:absolute;
+      left:50%;
+      top:50%;
+      transform: translate(-50%, -50%);
+      font-size:12px;
+      letter-spacing:.28em;
+      text-transform:uppercase;
+      color: rgba(233,238,252,.12);
+      opacity:0;
+      transition: opacity .6s ease;
+      pointer-events:none;
+    }
+    .frame:hover .secret{
+      opacity:1;
+    }
     .pin{
       display:inline-flex;
       align-items:center;
@@ -167,7 +233,7 @@
     .legend{
       position:absolute;
       right:18px;
-      bottom:120px;
+      bottom:150px;
       display:flex;
       gap:10px;
       align-items:center;
@@ -251,7 +317,7 @@
         <span>faint</span>
       </div>
       <div class="label">
-        <p class="title">The night we became "us"</p>
+        <p class="title">The night we became "us" <span class="moon" aria-hidden="true"></span></p>
         <p class="names">Maria &amp; Giorgos <span aria-hidden="true">❤</span></p>
         <p class="sub">
           <span id="dateText">January 8, 2026</span>
@@ -262,6 +328,8 @@
         </p>
         <p class="signature">made on that night</p>
       </div>
+      <div class="ruler" aria-hidden="true"><span class="tag">lat / lon</span></div>
+      <div class="secret" aria-hidden="true">where it began</div>
     </div>
   </div>
   <div class="grain" aria-hidden="true"></div>
@@ -812,7 +880,9 @@
 
   function drawFrame(now) {
     ctx.clearRect(0, 0, W, H);
-    ctx.drawImage(staticCanvas, 0, 0);
+    const driftX = Math.sin(now / 6000) * 0.6 * DPR;
+    const driftY = Math.cos(now / 7000) * 0.6 * DPR;
+    ctx.drawImage(staticCanvas, driftX, driftY);
 
     const { stars } = starData;
     for (const star of stars) {
@@ -823,13 +893,13 @@
       ctx.globalAlpha = alpha * 0.9;
       ctx.fillStyle = star.colorStr;
       ctx.beginPath();
-      ctx.arc(star.x, star.y, star.size * 3.2, 0, Math.PI * 2);
+      ctx.arc(star.x + driftX, star.y + driftY, star.size * 3.2, 0, Math.PI * 2);
       ctx.fill();
 
       // Star core
       ctx.globalAlpha = alpha;
       ctx.beginPath();
-      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+      ctx.arc(star.x + driftX, star.y + driftY, star.size, 0, Math.PI * 2);
       ctx.fill();
     }
 
