@@ -87,41 +87,6 @@
       padding: 22px 24px 24px;
       background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.30) 55%, rgba(0,0,0,.55) 100%);
     }
-    .signature{
-      margin:10px 0 0;
-      font-size:11px;
-      letter-spacing:.22em;
-      text-transform:uppercase;
-      color: rgba(233,238,252,.35);
-    }
-    .moon{
-      --phase-shift: 0px;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      width:12px;
-      height:12px;
-      border-radius:50%;
-      border:1px solid rgba(233,238,252,.45);
-      position:relative;
-      margin-left:8px;
-      background: rgba(10,12,20,.9);
-      box-shadow: 0 0 6px rgba(180,200,255,.25) inset;
-      opacity:.85;
-      overflow:hidden;
-    }
-    .moon::after{
-      content:"";
-      position:absolute;
-      inset:-2px;
-      background:
-        radial-gradient(
-          circle at calc(50% + var(--phase-shift)) 50%,
-          rgba(230,235,255,.95) 0 55%,
-          rgba(230,235,255,0) 58%
-        );
-      mix-blend-mode: screen;
-    }
     .desc-card{
       position:absolute;
       left:18px;
@@ -344,7 +309,7 @@
         <span>faint</span>
       </div>
       <div class="label">
-        <p class="title">The night we became "us" <span class="moon" aria-hidden="true"></span></p>
+        <p class="title">The night we became "us"</p>
         <p class="names">Maria &amp; Giorgos <span aria-hidden="true">❤</span></p>
         <p class="sub">
           <span id="dateText">January 8, 2026</span>
@@ -353,7 +318,6 @@
           <span class="dot"></span>
           <span id="coordsText">38.0407°N 23.6872°E</span>
         </p>
-        <p class="signature">made on that night</p>
       </div>
       <div class="ruler" aria-hidden="true"><span class="tag">lat / lon</span></div>
       <div class="secret" aria-hidden="true">where it began</div>
@@ -507,17 +471,6 @@
   document.getElementById("placeText").textContent = CONFIG.placeName;
   document.getElementById("coordsText").textContent =
     `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
-  const moonEl = document.querySelector(".moon");
-  if (moonEl) {
-    // Simple lunar phase: 0=new, 0.5=full
-    const synodic = 29.530588853;
-    const base = Date.UTC(2000, 0, 6, 18, 14, 0); // known new moon
-    const nowUtc = Date.UTC(CONFIG.year, CONFIG.month - 1, CONFIG.day, 0, 0, 0);
-    const days = (nowUtc - base) / 86400000;
-    const phase = ((days % synodic) + synodic) / synodic % 1;
-    const shift = (phase - 0.5) * 14;
-    moonEl.style.setProperty("--phase-shift", `${shift.toFixed(2)}px`);
-  }
 
   // ========= Astronomical calculations =========
   function julianDate(year, month, day, hour) {
@@ -776,7 +729,41 @@
       if (a && b) linePairs.push([a, b]);
     }
 
-    return { stars: visibleStars, cx, cy, R, linePairs };
+    // Extra faint stars for density
+    const faintStars = [];
+    const extraCount = Math.floor((R * R) / (DPR * 40));
+    for (let i = 0; i < extraCount; i++) {
+      const t = Math.random() * Math.PI * 2;
+      const u = Math.random();
+      const rr = Math.sqrt(u) * R;
+      const fx = cx + Math.cos(t) * rr;
+      const fy = cy + Math.sin(t) * rr;
+      const size = (Math.random() * 0.7 + 0.3) * DPR;
+      const alpha = 0.15 + Math.random() * 0.35;
+      faintStars.push({ x: fx, y: fy, size, alpha });
+    }
+
+    // Extra line connections between nearby brighter stars
+    const extraLines = [];
+    const bright = visibleStars.filter(s => s.mag < 2.6);
+    for (const star of bright) {
+      const neighbors = [];
+      for (const other of bright) {
+        if (other === star) continue;
+        const dx = other.x - star.x;
+        const dy = other.y - star.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < (R * 0.35) * (R * 0.35)) {
+          neighbors.push({ other, d2 });
+        }
+      }
+      neighbors.sort((a, b) => a.d2 - b.d2);
+      for (let i = 0; i < Math.min(3, neighbors.length); i++) {
+        extraLines.push([star, neighbors[i].other]);
+      }
+    }
+
+    return { stars: visibleStars, cx, cy, R, linePairs, faintStars, extraLines };
   }
 
   let starData = getStarScreenPositions();
@@ -794,7 +781,7 @@
   function drawStaticLayer() {
     staticCtx.clearRect(0, 0, W, H);
 
-    const { cx, cy, R, linePairs } = starData;
+    const { cx, cy, R, linePairs, faintStars, extraLines } = starData;
 
     // Map halo behind circle
     const halo = staticCtx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R * 1.1);
@@ -821,8 +808,8 @@
     staticCtx.translate(cx, cy);
     staticCtx.rotate(-18 * Math.PI / 180);
     const band = staticCtx.createRadialGradient(0, 0, R * 0.05, 0, 0, R * 0.9);
-    band.addColorStop(0, "rgba(130, 170, 255, 0.14)");
-    band.addColorStop(0.4, "rgba(130, 170, 255, 0.08)");
+    band.addColorStop(0, "rgba(160, 190, 255, 0.22)");
+    band.addColorStop(0.4, "rgba(140, 175, 255, 0.12)");
     band.addColorStop(1, "rgba(130, 170, 255, 0)");
     staticCtx.fillStyle = band;
     staticCtx.beginPath();
@@ -840,6 +827,16 @@
         staticCtx.lineTo(starB.x, starB.y);
         staticCtx.stroke();
       }
+    }
+
+    // Extra subtle lines between nearby stars
+    staticCtx.strokeStyle = "rgba(190, 210, 255, 0.08)";
+    staticCtx.lineWidth = 1 * DPR;
+    for (const [starA, starB] of extraLines) {
+      staticCtx.beginPath();
+      staticCtx.moveTo(starA.x, starA.y);
+      staticCtx.lineTo(starB.x, starB.y);
+      staticCtx.stroke();
     }
 
     // Circular boundary
@@ -870,6 +867,16 @@
       staticCtx.lineTo(cx + Math.cos(rad) * R, cy + Math.sin(rad) * R);
       staticCtx.stroke();
     }
+
+    // Faint background stars
+    staticCtx.fillStyle = "rgba(220, 230, 255, 1)";
+    for (const s of faintStars) {
+      staticCtx.globalAlpha = s.alpha;
+      staticCtx.beginPath();
+      staticCtx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      staticCtx.fill();
+    }
+    staticCtx.globalAlpha = 1;
 
     // Compass ticks
     staticCtx.strokeStyle = "rgba(233, 238, 252, 0.18)";
