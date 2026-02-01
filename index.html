@@ -60,6 +60,18 @@
       background: linear-gradient(180deg, rgba(255,255,255,.015), rgba(255,255,255,.00));
       overflow:hidden;
     }
+    .frame::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius: 18px;
+      box-shadow: 0 0 0 rgba(140, 190, 255, 0);
+      transition: box-shadow .4s ease;
+      pointer-events:none;
+    }
+    .frame:hover::after{
+      box-shadow: 0 0 0 1px rgba(140, 190, 255, .25), 0 0 28px rgba(120, 180, 255, .18);
+    }
     .frame::before{
       content:"";
       position:absolute;
@@ -74,6 +86,27 @@
       bottom:0;
       padding: 22px 24px 24px;
       background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.30) 55%, rgba(0,0,0,.55) 100%);
+    }
+    .signature{
+      margin:10px 0 0;
+      font-size:11px;
+      letter-spacing:.22em;
+      text-transform:uppercase;
+      color: rgba(233,238,252,.35);
+    }
+    .pin{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    .pin::before{
+      content:"";
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      border:1px solid rgba(233,238,252,.6);
+      box-shadow: 0 0 6px rgba(233,238,252,.35);
+      transform: translateY(1px);
     }
     .title{
       letter-spacing:.28em;
@@ -223,10 +256,11 @@
         <p class="sub">
           <span id="dateText">January 8, 2026</span>
           <span class="dot"></span>
-          <span id="placeText">Athens</span>
+          <span class="pin" id="placeText">Athens</span>
           <span class="dot"></span>
           <span id="coordsText">38.0407°N 23.6872°E</span>
         </p>
+        <p class="signature">made on that night</p>
       </div>
     </div>
   </div>
@@ -667,6 +701,30 @@
     staticCtx.beginPath();
     staticCtx.arc(cx, cy, R * 1.08, 0, Math.PI * 2);
     staticCtx.fill();
+
+    // Soft map shadow
+    staticCtx.save();
+    staticCtx.globalCompositeOperation = "multiply";
+    staticCtx.fillStyle = "rgba(0,0,0,0.25)";
+    staticCtx.beginPath();
+    staticCtx.ellipse(cx + 6 * DPR, cy + 10 * DPR, R * 0.95, R * 0.95, 0, 0, Math.PI * 2);
+    staticCtx.fill();
+    staticCtx.restore();
+
+    // Milky Way band
+    staticCtx.save();
+    staticCtx.globalCompositeOperation = "screen";
+    staticCtx.translate(cx, cy);
+    staticCtx.rotate(-18 * Math.PI / 180);
+    const band = staticCtx.createRadialGradient(0, 0, R * 0.05, 0, 0, R * 0.9);
+    band.addColorStop(0, "rgba(130, 170, 255, 0.14)");
+    band.addColorStop(0.4, "rgba(130, 170, 255, 0.08)");
+    band.addColorStop(1, "rgba(130, 170, 255, 0)");
+    staticCtx.fillStyle = band;
+    staticCtx.beginPath();
+    staticCtx.ellipse(0, 0, R * 0.95, R * 0.25, 0, 0, Math.PI * 2);
+    staticCtx.fill();
+    staticCtx.restore();
 
     // Constellation lines (simple solid color, no gradients)
     if (CONFIG.showConstellationLines) {
