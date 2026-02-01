@@ -118,6 +118,36 @@
       font-weight: 700;
       user-select:none;
     }
+    .grain{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      z-index: 3;
+      opacity: 0.18;
+      mix-blend-mode: soft-light;
+      background-image:
+        radial-gradient(rgba(255,255,255,0.12) 0.6px, transparent 0.6px),
+        radial-gradient(rgba(0,0,0,0.18) 0.7px, transparent 0.7px);
+      background-size: 3px 3px, 4px 4px;
+      background-position: 0 0, 1px 1px;
+    }
+    .placard{
+      position:absolute;
+      top:18px;
+      left:18px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      font-size:11px;
+      letter-spacing:.18em;
+      text-transform:uppercase;
+      color: rgba(233,238,252,.55);
+    }
+    .placard .bar{
+      width:20px;
+      height:1px;
+      background: rgba(233,238,252,.2);
+    }
     .star-info{
       position:absolute;
       top:16px;
@@ -162,6 +192,11 @@
   <div class="poster">
     <div class="frame" aria-hidden="true">
       <div class="corner">our map</div>
+      <div class="placard">
+        <span id="timeText">21:00</span>
+        <span class="bar"></span>
+        <span id="dateBlock">January 8, 2026</span>
+      </div>
       <div class="star-info" id="starInfo">
         <span class="name">Hover a bright star</span>
       </div>
@@ -178,6 +213,7 @@
       </div>
     </div>
   </div>
+  <div class="grain" aria-hidden="true"></div>
 </div>
 
 <script>
@@ -324,7 +360,9 @@
   document.getElementById("dateText").textContent = `January ${CONFIG.day}, ${CONFIG.year}`;
   document.getElementById("placeText").textContent = CONFIG.placeName;
   document.getElementById("coordsText").textContent =
-    `${Math.abs(CONFIG.lat).toFixed(4)}?${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}?${CONFIG.lon>=0?"E":"W"}`;
+    `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
+  document.getElementById("dateBlock").textContent = `January ${CONFIG.day}, ${CONFIG.year}`;
+  document.getElementById("timeText").textContent = `${String(CONFIG.hour).padStart(2,"0")}:00`;
 
   // ========= Astronomical calculations =========
   function julianDate(year, month, day, hour) {
@@ -386,6 +424,31 @@
   const staticCtx = staticCanvas.getContext("2d", { alpha: true });
   const bgCanvas = document.getElementById("bgCanvas");
   const bgCtx = bgCanvas.getContext("2d", { alpha: false });
+  const wrap = document.getElementById("wrap");
+
+  // Subtle parallax for background
+  let parallaxX = 0;
+  let parallaxY = 0;
+  let targetX = 0;
+  let targetY = 0;
+  function updateParallax() {
+    parallaxX += (targetX - parallaxX) * 0.08;
+    parallaxY += (targetY - parallaxY) * 0.08;
+    bgCanvas.style.transform = `translate(${parallaxX}px, ${parallaxY}px)`;
+    requestAnimationFrame(updateParallax);
+  }
+  updateParallax();
+  wrap.addEventListener("pointermove", (e) => {
+    const rect = wrap.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width - 0.5;
+    const my = (e.clientY - rect.top) / rect.height - 0.5;
+    targetX = mx * 12;
+    targetY = my * 12;
+  }, { passive: true });
+  wrap.addEventListener("pointerleave", () => {
+    targetX = 0;
+    targetY = 0;
+  }, { passive: true });
 
   let W = 0, H = 0, DPR = 1;
   function resize(){
@@ -583,6 +646,48 @@
     staticCtx.beginPath();
     staticCtx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
     staticCtx.stroke();
+
+    // Compass ticks
+    staticCtx.strokeStyle = "rgba(233, 238, 252, 0.18)";
+    staticCtx.lineWidth = 1 * DPR;
+    for (let a = 0; a < 360; a += 15) {
+      const rad = (a - 90) * Math.PI / 180;
+      const len = (a % 45 === 0) ? 8 * DPR : 4 * DPR;
+      const x0 = cx + Math.cos(rad) * (R - len);
+      const y0 = cy + Math.sin(rad) * (R - len);
+      const x1 = cx + Math.cos(rad) * (R + 1 * DPR);
+      const y1 = cy + Math.sin(rad) * (R + 1 * DPR);
+      staticCtx.beginPath();
+      staticCtx.moveTo(x0, y0);
+      staticCtx.lineTo(x1, y1);
+      staticCtx.stroke();
+    }
+
+    // North marker
+    staticCtx.fillStyle = "rgba(233, 238, 252, 0.6)";
+    staticCtx.font = `${10 * DPR}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+    staticCtx.textAlign = "center";
+    staticCtx.textBaseline = "middle";
+    staticCtx.fillText("N", cx, cy - R - 12 * DPR);
+
+    // Constellation labels (subtle)
+    staticCtx.fillStyle = "rgba(233, 238, 252, 0.35)";
+    staticCtx.font = `${9 * DPR}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial`;
+    staticCtx.textAlign = "left";
+    staticCtx.textBaseline = "middle";
+    const labels = [
+      { name: "Orion", idx: 7 },
+      { name: "Cygnus", idx: 14 },
+      { name: "Leo", idx: 15 },
+      { name: "Gemini", idx: 6 },
+      { name: "Cassiopeia", idx: 38 },
+      { name: "Scorpius", idx: 10 },
+    ];
+    for (const label of labels) {
+      const star = starData.stars.find(s => s.index === label.idx);
+      if (!star) continue;
+      staticCtx.fillText(label.name, star.x + 8 * DPR, star.y - 6 * DPR);
+    }
   }
 
   function drawFrame(now) {
