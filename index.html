@@ -159,9 +159,9 @@
     timezone: 2,   // UTC+2 for Athens (EET in winter)
 
     // Visual style
-    twinkleIntensity: 0.6,
+    twinkleIntensity: 0.35,
     showConstellationLines: true,
-    nebulaIntensity: 0.35,
+    nebulaIntensity: 0.32,
   };
 
   // ========= Bright Star Catalog =========
@@ -292,6 +292,9 @@
   document.getElementById("coordsText").textContent =
     `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
 
+  document.getElementById("coordsText").textContent =
+    `${Math.abs(CONFIG.lat).toFixed(4)}\u00B0${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}\u00B0${CONFIG.lon>=0?"E":"W"}`;
+
   // ========= Astronomical calculations =========
   function julianDate(year, month, day, hour) {
     if (month <= 2) {
@@ -353,7 +356,7 @@
 
   let W = 0, H = 0, DPR = 1;
   function resize(){
-    DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    DPR = Math.max(1, Math.min(1.5, window.devicePixelRatio || 1));
     W = Math.floor(window.innerWidth * DPR);
     H = Math.floor(window.innerHeight * DPR);
     canvas.width = W;
@@ -402,7 +405,7 @@
 
     // Cosmic dust - subtle noise-like particles
     bgCtx.save();
-    const dustCount = Math.floor((W * H) / 8000);
+    const dustCount = Math.floor((W * H) / 14000);
     for (let i = 0; i < dustCount; i++) {
       const x = Math.random() * W;
       const y = Math.random() * H;
@@ -472,6 +475,7 @@
           color = { r: 255, g: 160, b: 120 }; // Red
         }
 
+        const colorStr = `rgb(${color.r}, ${color.g}, ${color.b})`;
         visibleStars.push({
           index: i,
           name,
@@ -479,8 +483,9 @@
           size,
           mag,
           color,
+          colorStr,
           twinklePhase: Math.random() * Math.PI * 2,
-          twinkleSpeed: 0.8 + Math.random() * 2.5,
+          twinkleSpeed: 0.6 + Math.random() * 1.4,
           twinkleOffset: Math.random() * 0.3,
           pulsePhase: Math.random() * Math.PI * 2,
           pulseSpeed: 0.3 + Math.random() * 0.4,
@@ -488,7 +493,16 @@
       }
     }
 
-    return { stars: visibleStars, cx, cy, R };
+    const starByIndex = new Map();
+    for (const star of visibleStars) starByIndex.set(star.index, star);
+    const linePairs = [];
+    for (const [i, j] of CONSTELLATION_LINES) {
+      const a = starByIndex.get(i);
+      const b = starByIndex.get(j);
+      if (a && b) linePairs.push([a, b]);
+    }
+
+    return { stars: visibleStars, cx, cy, R, linePairs };
   }
 
   let starData = getStarScreenPositions();
@@ -526,10 +540,12 @@
   }
 
   // ========= Animation loop =========
+  let running = true;
   function draw(now) {
+    if (!running) return;
     ctx.clearRect(0, 0, W, H);
 
-    const { stars, cx, cy, R } = starData;
+    const { stars, cx, cy, R, linePairs } = starData;
 
     // Draw stars with optimized twinkling
     for (const star of stars) {
@@ -540,12 +556,10 @@
 
       const baseAlpha = Math.min(1, 0.5 + (3 - star.mag) * 0.12);
       const alpha = baseAlpha * twinkleIntensity;
-      const { r, g, b } = star.color;
-
       // Simple glow for bright stars (no gradient, just larger faded circle)
       if (star.mag < 1) {
         ctx.globalAlpha = alpha * 0.12;
-        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.fillStyle = star.colorStr;
         ctx.beginPath();
         ctx.arc(star.x, star.y, star.size * 4, 0, Math.PI * 2);
         ctx.fill();
@@ -553,7 +567,7 @@
 
       // Star core - simple filled circle
       ctx.globalAlpha = alpha;
-      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillStyle = star.colorStr;
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
@@ -570,7 +584,7 @@
       // Diffraction spikes for very bright stars
       if (star.mag < 0.3) {
         ctx.globalAlpha = alpha * 0.25;
-        ctx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.strokeStyle = star.colorStr;
         ctx.lineWidth = 0.8 * DPR;
         const spikeLen = star.size * 5;
         ctx.beginPath();
@@ -588,15 +602,11 @@
     if (CONFIG.showConstellationLines) {
       ctx.strokeStyle = 'rgba(100, 140, 200, 0.1)';
       ctx.lineWidth = 1 * DPR;
-      for (const [i, j] of CONSTELLATION_LINES) {
-        const starA = stars.find(s => s.index === i);
-        const starB = stars.find(s => s.index === j);
-        if (starA && starB) {
-          ctx.beginPath();
-          ctx.moveTo(starA.x, starA.y);
-          ctx.lineTo(starB.x, starB.y);
-          ctx.stroke();
-        }
+      for (const [starA, starB] of linePairs) {
+        ctx.beginPath();
+        ctx.moveTo(starA.x, starA.y);
+        ctx.lineTo(starB.x, starB.y);
+        ctx.stroke();
       }
     }
 
@@ -650,6 +660,11 @@
 
     requestAnimationFrame(draw);
   }
+
+  document.addEventListener("visibilitychange", () => {
+    running = !document.hidden;
+    if (running) requestAnimationFrame(draw);
+  });
 
   requestAnimationFrame(draw);
 })();
