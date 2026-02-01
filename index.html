@@ -116,6 +116,36 @@
       color: rgba(233,238,252,.22);
       user-select:none;
     }
+    .star-info{
+      position:absolute;
+      top:16px;
+      right:16px;
+      width:min(260px, 44%);
+      background: rgba(3,5,9,.55);
+      border: 1px solid rgba(233,238,252,.12);
+      border-radius: 12px;
+      padding: 12px 14px;
+      backdrop-filter: blur(6px);
+      font-size:12px;
+      letter-spacing:.08em;
+      color: rgba(233,238,252,.8);
+      text-transform: uppercase;
+    }
+    .star-info .name{
+      display:block;
+      font-size:13px;
+      letter-spacing:.18em;
+      color: rgba(233,238,252,.95);
+      margin-bottom:6px;
+    }
+    .star-info .value{
+      display:block;
+      font-size:12px;
+      letter-spacing:.05em;
+      text-transform:none;
+      color: rgba(233,238,252,.7);
+      margin-top:4px;
+    }
 
     @media (prefers-reduced-motion: reduce){
       .corner{ display:none; }
@@ -130,6 +160,10 @@
   <div class="poster">
     <div class="frame" aria-hidden="true">
       <div class="corner">our sky</div>
+      <div class="star-info" id="starInfo">
+        <span class="name">Hover a bright star</span>
+        <span class="value">Name, magnitude, altitude, azimuth</span>
+      </div>
       <div class="label">
         <p class="title">The night we became "us"</p>
         <p class="names">You & Her</p>
@@ -159,7 +193,6 @@
     timezone: 2,   // UTC+2 for Athens (EET in winter)
 
     // Visual style
-    twinkleIntensity: 0.35,
     showConstellationLines: true,
     nebulaIntensity: 0.32,
   };
@@ -290,10 +323,7 @@
   document.getElementById("dateText").textContent = `January ${CONFIG.day}, ${CONFIG.year}`;
   document.getElementById("placeText").textContent = CONFIG.placeName;
   document.getElementById("coordsText").textContent =
-    `${Math.abs(CONFIG.lat).toFixed(4)}°${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}°${CONFIG.lon>=0?"E":"W"}`;
-
-  document.getElementById("coordsText").textContent =
-    `${Math.abs(CONFIG.lat).toFixed(4)}\u00B0${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}\u00B0${CONFIG.lon>=0?"E":"W"}`;
+    `${Math.abs(CONFIG.lat).toFixed(4)}?${CONFIG.lat>=0?"N":"S"} ${Math.abs(CONFIG.lon).toFixed(4)}?${CONFIG.lon>=0?"E":"W"}`;
 
   // ========= Astronomical calculations =========
   function julianDate(year, month, day, hour) {
@@ -457,7 +487,7 @@
         const y = cy - r * Math.cos(angle); // Invert Y for screen coords
 
         // Size based on magnitude (brighter = larger)
-        const size = Math.max(0.8, (3.5 - mag) * 0.8) * DPR;
+        const size = Math.max(0.6, (3.2 - mag) * 0.55) * DPR;
 
         // Color based on color index (B-V)
         let color;
@@ -476,19 +506,17 @@
         }
 
         const colorStr = `rgb(${color.r}, ${color.g}, ${color.b})`;
+        const alpha = Math.min(1, 0.35 + (3.2 - mag) * 0.12);
         visibleStars.push({
           index: i,
           name,
           x, y,
           size,
           mag,
-          color,
           colorStr,
-          twinklePhase: Math.random() * Math.PI * 2,
-          twinkleSpeed: 0.6 + Math.random() * 1.4,
-          twinkleOffset: Math.random() * 0.3,
-          pulsePhase: Math.random() * Math.PI * 2,
-          pulseSpeed: 0.3 + Math.random() * 0.4,
+          alpha,
+          altitude: pos.altitude,
+          azimuth: pos.azimuth,
         });
       }
     }
@@ -512,88 +540,23 @@
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      starData = getStarScreenPositions();
+      rebuildSky();
     }, 120);
   }, { passive: true });
 
-  // ========= Shooting star =========
-  let shooting = null;
-  function maybeSpawnShootingStar() {
-    if (shooting) return;
-    if (Math.random() < 0.002) {
-      const { cx, cy, R } = starData;
-      const ang = Math.random() * Math.PI * 2;
-      const startR = R * (0.7 + Math.random() * 0.25);
-      const x0 = cx + startR * Math.cos(ang);
-      const y0 = cy + startR * Math.sin(ang);
-
-      const dir = ang + Math.PI * (0.3 + Math.random() * 0.4) * (Math.random() < 0.5 ? 1 : -1);
-      shooting = {
-        x: x0, y: y0,
-        vx: Math.cos(dir) * (8 + Math.random() * 6) * DPR,
-        vy: Math.sin(dir) * (8 + Math.random() * 6) * DPR,
-        life: 0,
-        maxLife: 20 + Math.floor(Math.random() * 25),
-        width: 1.5 + Math.random() * 1.5,
-      };
-    }
-  }
-
-  // ========= Animation loop =========
-  let running = true;
-  function draw(now) {
-    if (!running) return;
+  // ========= Static render =========
+  function renderSky() {
     ctx.clearRect(0, 0, W, H);
 
     const { stars, cx, cy, R, linePairs } = starData;
 
-    // Draw stars with optimized twinkling
+    // Draw stars as clean points (no glow, no spikes)
     for (const star of stars) {
-      // Simple twinkle effect (single sine wave for performance)
-      const twinkle = Math.sin(now / 1000 * star.twinkleSpeed + star.twinklePhase);
-      const twinkleFactor = 0.7 + 0.3 * twinkle;
-      const twinkleIntensity = (1 - CONFIG.twinkleIntensity) + CONFIG.twinkleIntensity * twinkleFactor;
-
-      const baseAlpha = Math.min(1, 0.5 + (3 - star.mag) * 0.12);
-      const alpha = baseAlpha * twinkleIntensity;
-      // Simple glow for bright stars (no gradient, just larger faded circle)
-      if (star.mag < 1) {
-        ctx.globalAlpha = alpha * 0.12;
-        ctx.fillStyle = star.colorStr;
-        ctx.beginPath();
-        ctx.arc(star.x, star.y, star.size * 4, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Star core - simple filled circle
-      ctx.globalAlpha = alpha;
+      ctx.globalAlpha = star.alpha;
       ctx.fillStyle = star.colorStr;
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
-
-      // Bright white center for brighter stars
-      if (star.mag < 2) {
-        ctx.globalAlpha = alpha * 0.7;
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(star.x, star.y, star.size * 0.5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Diffraction spikes for very bright stars
-      if (star.mag < 0.3) {
-        ctx.globalAlpha = alpha * 0.25;
-        ctx.strokeStyle = star.colorStr;
-        ctx.lineWidth = 0.8 * DPR;
-        const spikeLen = star.size * 5;
-        ctx.beginPath();
-        ctx.moveTo(star.x - spikeLen, star.y);
-        ctx.lineTo(star.x + spikeLen, star.y);
-        ctx.moveTo(star.x, star.y - spikeLen);
-        ctx.lineTo(star.x, star.y + spikeLen);
-        ctx.stroke();
-      }
     }
 
     ctx.globalAlpha = 1;
@@ -622,51 +585,62 @@
     ctx.beginPath();
     ctx.arc(cx, cy, R * 0.5, 0, Math.PI * 2);
     ctx.stroke();
-
-    // Shooting star
-    maybeSpawnShootingStar();
-    if (shooting) {
-      shooting.life++;
-      const progress = shooting.life / shooting.maxLife;
-      const x1 = shooting.x;
-      const y1 = shooting.y;
-      shooting.x += shooting.vx;
-      shooting.y += shooting.vy;
-
-      const alpha = Math.max(0, 1 - progress);
-
-      // Glowing head - simple circle
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(x1, y1, 3 * DPR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Trail - simple line
-      ctx.globalAlpha = alpha * 0.7;
-      ctx.strokeStyle = 'rgba(200, 230, 255, 0.8)';
-      ctx.lineWidth = shooting.width * DPR * (1 - progress * 0.5);
-      ctx.lineCap = 'round';
-      const trailLen = 5 + progress * 3;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x1 - shooting.vx * trailLen, y1 - shooting.vy * trailLen);
-      ctx.stroke();
-
-      ctx.globalAlpha = 1;
-
-      if (shooting.life >= shooting.maxLife) shooting = null;
-    }
-
-    requestAnimationFrame(draw);
   }
 
-  document.addEventListener("visibilitychange", () => {
-    running = !document.hidden;
-    if (running) requestAnimationFrame(draw);
-  });
+  function rebuildSky() {
+    starData = getStarScreenPositions();
+    renderSky();
+  }
 
-  requestAnimationFrame(draw);
+  const infoEl = document.getElementById("starInfo");
+  function setStarInfo(star) {
+    if (!infoEl) return;
+    if (!star) {
+      infoEl.innerHTML = '<span class="name">Hover a bright star</span><span class="value">Name, magnitude, altitude, azimuth</span>';
+      return;
+    }
+    const alt = `${star.altitude.toFixed(1)}°`;
+    const az = `${star.azimuth.toFixed(1)}°`;
+    infoEl.innerHTML =
+      `<span class="name">${star.name}</span>` +
+      `<span class="value">Magnitude: ${star.mag.toFixed(2)}</span>` +
+      `<span class="value">Altitude: ${alt}</span>` +
+      `<span class="value">Azimuth: ${az}</span>`;
+  }
+
+  function findNearestStar(x, y) {
+    const { stars, cx, cy, R } = starData;
+    const dx = x - cx;
+    const dy = y - cy;
+    if ((dx * dx + dy * dy) > (R * R)) return null;
+    let best = null;
+    let bestDist = Infinity;
+    for (const star of stars) {
+      if (star.mag > 2.2) continue;
+      const sx = star.x - x;
+      const sy = star.y - y;
+      const d2 = sx * sx + sy * sy;
+      const hit = (star.size * 3 + 6 * DPR);
+      if (d2 < hit * hit && d2 < bestDist) {
+        bestDist = d2;
+        best = star;
+      }
+    }
+    return best;
+  }
+
+  canvas.addEventListener("pointermove", (e) => {
+    const x = e.clientX * DPR;
+    const y = e.clientY * DPR;
+    const star = findNearestStar(x, y);
+    setStarInfo(star);
+  }, { passive: true });
+
+  canvas.addEventListener("pointerleave", () => {
+    setStarInfo(null);
+  }, { passive: true });
+
+  rebuildSky();
 })();
 </script>
 </body>
